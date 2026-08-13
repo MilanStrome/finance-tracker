@@ -30,6 +30,8 @@
   --red: #dc2626;
   --green: #16a34a;
   --amber: #d97706;
+  --teal: #0d9488;
+  --pink: #db2777;
   --red-soft: rgba(220, 38, 38, .12);
   --green-soft: rgba(22, 163, 74, .12);
   --amber-soft: rgba(217, 119, 6, .14);
@@ -41,6 +43,8 @@
   --red: #f87171;
   --green: #4ade80;
   --amber: #fbbf24;
+  --teal: #2dd4bf;
+  --pink: #f472b6;
   --red-soft: rgba(248, 113, 113, .16);
   --green-soft: rgba(74, 222, 128, .14);
   --amber-soft: rgba(251, 191, 36, .16);
@@ -521,10 +525,10 @@ table.reg tr.archived td { opacity: .6; }
 .seg-Loan { background: var(--red); }
 .seg-Saved { background: var(--amber); }
 .seg-Spent { background: var(--muted); }
-/* Spent sub-segments: solid = tracked bills, light = logged misc, striped = unaccounted */
-.seg-Bills { background: var(--muted); }
-.seg-Misc { background: var(--muted); opacity: .65; }
-.seg-Other { background: repeating-linear-gradient(135deg, var(--muted) 0 4px, transparent 4px 9px); }
+/* Spent parts: teal bills, pink misc; Other = pale "unfilled" (unaccounted money) */
+.seg-Bills { background: var(--teal); }
+.seg-Misc { background: var(--pink); }
+.seg-Other { background: var(--border); box-shadow: inset 0 0 0 1px var(--muted); }
 .flow-legend { display: flex; flex-wrap: wrap; gap: .35rem .95rem; font-size: .82rem; }
 .flow-legend .dot, .flow-spentline .dot {
   display: inline-block; width: 10px; height: 10px; border-radius: 50%;
@@ -1457,6 +1461,8 @@ const TIP = (() => {
     /* tasks */
     taskLink: 'Link a task to an instrument and its reference number shows on the task - handy at the bank. The Registry row gets a 📌 badge.',
     taskDue: 'Optional. Due-dated tasks appear in This Month’s upcoming dues and turn red when overdue.',
+    bills: 'Tracked bill instruments confirmed this month - electricity, mobile, subscriptions and the like.',
+    misc: 'One-off expenses you logged with + Expense - trips, repairs, purchases, lent money.',
     /* v2: rates, goals, vault, analysis */
     interestRate: 'Assumed % per year - powers projections only, never presented as a promise. Govt rates change quarterly; loans have no default, enter yours.',
     goal: 'Optional label like "Retirement" or "Child education" - instruments sharing a goal roll up into one progress card on the FY screen.',
@@ -3088,14 +3094,17 @@ const DASH = (() => {
   /* ---------- This Month: flow card + 30-day dues ---------- */
   function monthExtrasHTML(key) {
     const b = monthBuckets(key);
-    const segs = [
+    // 7-part view: the 4 real buckets + Spent shown directly as Bills / Misc / Other
+    const parts = [
       { label: 'Invested', cls: 'Invested', v: b.invested, tip: 'invested' },
       { label: 'Protection', cls: 'Protection', v: b.protection, tip: 'protection' },
       { label: 'Loans', cls: 'Loan', v: b.loans, tip: 'loans' },
       { label: 'Saved', cls: 'Saved', v: b.saved, tip: 'saved' },
-      { label: 'Spent', cls: 'Spent', v: b.spent, tip: 'spent' }
+      { label: 'Bills', cls: 'Bills', v: b.bills, tip: 'bills' },
+      { label: 'Misc', cls: 'Misc', v: b.misc, tip: 'misc' },
+      { label: 'Other (derived)', cls: 'Other', v: Math.max(0, b.other), tip: 'otherDerived' }
     ];
-    const segSum = segs.reduce((s, x) => s + x.v, 0);
+    const segSum = parts.reduce((s, x) => s + x.v, 0);
     const denom = Math.max(b.totalIn, segSum);
     const pctBase = b.totalIn > 0 ? b.totalIn : segSum;
     const pct = v => pctBase > 0 ? Math.round(v / pctBase * 100) + '%' : '-';
@@ -3104,26 +3113,16 @@ const DASH = (() => {
       <div class="flow-total">Total in <b>${fmt(b.totalIn)}</b> ${TIP.icon('totalIn')}
         <span class="muted small">salary ${fmt(b.salary)}${b.otherIncome ? ' + other ' + fmt(b.otherIncome) : ''}</span></div>`;
     if (denom > 0) {
-      // the Spent portion is drawn as its three parts: Bills | Misc | Other (striped = unaccounted)
-      const barSegs = segs.slice(0, 4).concat([
-        { label: 'Spent → Bills', cls: 'Bills', v: b.bills },
-        { label: 'Spent → Misc', cls: 'Misc', v: b.misc },
-        { label: 'Spent → Other (derived, unaccounted)', cls: 'Other', v: Math.max(0, b.other) }
-      ]);
-      flow += `<div class="split-bar">${barSegs.filter(s => s.v > 0).map(s =>
+      flow += `<div class="split-bar">${parts.filter(s => s.v > 0).map(s =>
         `<span class="seg-${s.cls}" style="flex:${(s.v / denom).toFixed(4)}" title="${s.label} ${fmt(s.v)} (${pct(s.v)})"></span>`).join('')}</div>`;
     }
-    flow += `<div class="flow-legend">${segs.map(s =>
-      `<span><span class="dot seg-${s.cls}"></span>${s.label} <b>${fmt(s.v)}</b> <span class="muted">${pct(s.v)}</span>${TIP.icon(s.tip)}</span>`).join('')}</div>`;
-    flow += `<div class="flow-spentline">Spent: <span class="dot seg-Bills"></span>Bills ${fmt(b.bills)} · <span class="dot seg-Misc"></span>Misc ${fmt(b.misc)} · `
-      + (b.other >= 0
-        ? `<span class="dot seg-Other"></span>Other (derived) ${fmt(b.other)} ${TIP.icon('otherDerived')}`
-          + (b.other > 0 && b.totalIn > 0 && !MON.isClosed(key)
-            ? ` <button type="button" class="mini-btn" data-act="save-rest" data-amt="${b.other}"
-                 style="min-height:32px;padding:.15rem .6rem;font-size:.75rem;margin-left:.3rem"
-                 title="Log the leftover as Saved - amount pre-filled, adjust if some was cash spending">💾 Save the rest</button>` : '')
-        : `<span class="overspent">Overspent from savings ${fmt(-b.other)}</span> ${TIP.icon('overspent')}`)
-      + `</div>`;
+    const saveRestBtn = b.other > 0 && b.totalIn > 0 && !MON.isClosed(key)
+      ? ` <button type="button" class="mini-btn" data-act="save-rest" data-amt="${b.other}"
+           style="min-height:32px;padding:.15rem .6rem;font-size:.75rem;margin-left:.15rem"
+           title="Log the leftover as Saved - amount pre-filled, adjust if some was cash spending">💾 Save the rest</button>` : '';
+    flow += `<div class="flow-legend">${parts.map(s =>
+      `<span><span class="dot seg-${s.cls}"></span>${s.label} <b>${fmt(s.v)}</b> <span class="muted">${pct(s.v)}</span>${TIP.icon(s.tip)}${s.cls === 'Other' ? saveRestBtn : ''}</span>`).join('')}
+      ${b.other < 0 ? `<span><span class="dot" style="background:var(--red)"></span><span class="overspent">Overspent from savings ${fmt(-b.other)}</span> ${TIP.icon('overspent')}</span>` : ''}</div>`;
     if (b.saved === 0 && b.totalIn > 0)
       flow += `<div class="flow-spentline">💡 Money not spent stays in your banks - log a "Saved" entry if you want it counted.</div>`;
     flow += `</div>`;
@@ -4759,8 +4758,7 @@ const REP = (() => {
       </div></div>`;
 
     /* 2 - money flow */
-    const R_SPENT = { Bills: '#4b5563', Misc: '#9ca3af',
-      Other: 'repeating-linear-gradient(135deg,#6b7280 0 4px,#e5e7eb 4px 9px)' };
+    const R_SPENT = { Bills: '#0f766e', Misc: '#db2777', Other: '#d1d5db' };
     const barSegs = segs.slice(0, 4).map(([n, v]) => [n, v, SEG_COLORS[n]]).concat([
       ['Spent → Bills', tot.bills, R_SPENT.Bills],
       ['Spent → Misc', tot.misc, R_SPENT.Misc],
