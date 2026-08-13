@@ -530,6 +530,13 @@ table.reg tr.archived td { opacity: .6; }
 .seg-Misc { background: var(--pink); }
 .seg-Other { background: var(--border); box-shadow: inset 0 0 0 1px var(--muted); }
 .flow-legend { display: flex; flex-wrap: wrap; gap: .35rem .95rem; font-size: .82rem; }
+.flow-legend .leftover-pill {
+  background: var(--accent-soft); color: var(--accent-strong);
+  border-radius: 999px; padding: .3rem .65rem;
+  display: inline-flex; align-items: center; gap: .25rem; font-weight: 700;
+}
+.flow-legend .leftover-pill .muted { color: var(--accent-strong); opacity: .7; }
+.flow-legend .leftover-pill .tip-icon { color: var(--accent-strong); opacity: .7; }
 .flow-legend .dot, .flow-spentline .dot {
   display: inline-block; width: 10px; height: 10px; border-radius: 50%;
   margin-right: .32rem; vertical-align: baseline;
@@ -1419,9 +1426,9 @@ const TIP = (() => {
     invested: 'SIPs, PPF, NPS, SSY, stocks and lumpsums confirmed this month.',
     protection: 'Insurance premiums confirmed this month - life, health, accident, vehicle.',
     loans: 'EMIs plus any extra prepayments confirmed this month.',
-    saved: 'Only what you explicitly log as Saved. Untouched leftover money shows under Spent → Other instead.',
-    spent: 'Bills + misc expenses + Other (the derived remainder of your income).',
-    otherDerived: 'Total in minus everything you logged - money that left (or sat) untracked this month.',
+    saved: 'Only what you explicitly log as Saved. Money you haven’t declared shows as Leftover instead.',
+    spent: 'Bills + misc expenses + Leftover (the derived remainder of your income).',
+    otherDerived: 'Leftover = total in minus everything you logged. Probably still in your bank, but it may include spending you never entered - check, then tap "Save the rest".',
     overspent: 'Outflows exceeded income this month - the gap came out of your existing savings.',
     net: 'In minus out for this account this month - confirmed amounts plus pending expected ones.',
     ccOutstanding: 'Everything swiped on this card minus bill payments received (transfers in) - what you still owe, all time.',
@@ -3102,7 +3109,7 @@ const DASH = (() => {
       { label: 'Saved', cls: 'Saved', v: b.saved, tip: 'saved' },
       { label: 'Bills', cls: 'Bills', v: b.bills, tip: 'bills' },
       { label: 'Misc', cls: 'Misc', v: b.misc, tip: 'misc' },
-      { label: 'Other (derived)', cls: 'Other', v: Math.max(0, b.other), tip: 'otherDerived' }
+      { label: 'Leftover', cls: 'Other', v: Math.max(0, b.other), tip: 'otherDerived' }
     ];
     const segSum = parts.reduce((s, x) => s + x.v, 0);
     const denom = Math.max(b.totalIn, segSum);
@@ -3121,7 +3128,7 @@ const DASH = (() => {
            style="min-height:32px;padding:.15rem .6rem;font-size:.75rem;margin-left:.15rem"
            title="Log the leftover as Saved - amount pre-filled, adjust if some was cash spending">💾 Save the rest</button>` : '';
     flow += `<div class="flow-legend">${parts.map(s =>
-      `<span><span class="dot seg-${s.cls}"></span>${s.label} <b>${fmt(s.v)}</b> <span class="muted">${pct(s.v)}</span>${TIP.icon(s.tip)}${s.cls === 'Other' ? saveRestBtn : ''}</span>`).join('')}
+      `<span${s.cls === 'Other' && s.v > 0 ? ' class="leftover-pill"' : ''}><span class="dot seg-${s.cls}"></span>${s.label} <b>${fmt(s.v)}</b> <span class="muted">${pct(s.v)}</span>${TIP.icon(s.tip)}${s.cls === 'Other' ? saveRestBtn : ''}</span>`).join('')}
       ${b.other < 0 ? `<span><span class="dot" style="background:var(--red)"></span><span class="overspent">Overspent from savings ${fmt(-b.other)}</span> ${TIP.icon('overspent')}</span>` : ''}</div>`;
     if (b.saved === 0 && b.totalIn > 0)
       flow += `<div class="flow-spentline">💡 Money not spent stays in your banks - log a "Saved" entry if you want it counted.</div>`;
@@ -3157,7 +3164,7 @@ const DASH = (() => {
     if (prior.length >= 2 && cur.other > 0) {
       const avg = prior.reduce((s, b) => s + Math.max(0, b.other), 0) / prior.length;
       if (cur.other > avg * 1.5 && cur.other - avg > 5000)
-        push('other|' + key, `Other spending ${fmt(Math.round(cur.other))} vs ${fmt(Math.round(avg))} ${prior.length}-month average.`);
+        push('other|' + key, `Leftover/untracked ${fmt(Math.round(cur.other))} vs ${fmt(Math.round(avg))} ${prior.length}-month average - log expenses or save the rest.`);
     }
     // 2. SIP skipped 2 consecutive months
     const m1 = MON.addMonths(key, -1), m2 = MON.addMonths(key, -2);
@@ -4762,7 +4769,7 @@ const REP = (() => {
     const barSegs = segs.slice(0, 4).map(([n, v]) => [n, v, SEG_COLORS[n]]).concat([
       ['Spent → Bills', tot.bills, R_SPENT.Bills],
       ['Spent → Misc', tot.misc, R_SPENT.Misc],
-      ['Spent → Other (derived)', Math.max(0, tot.other), R_SPENT.Other]
+      ['Spent → Leftover (derived)', Math.max(0, tot.other), R_SPENT.Other]
     ]);
     h += `<div class="r-section"><h2>Money flow</h2>
       <div class="r-bar">${barSegs.filter(s => s[1] > 0).map(([n, v, bg]) =>
@@ -4772,7 +4779,7 @@ const REP = (() => {
         <td class="num">${fmt(v)}</td><td class="num">${pct(v)}</td></tr>`).join('')}
       <tr><td style="padding-left:1.3rem"><span class="r-dot" style="background:${R_SPENT.Bills}"></span>Spent → Bills</td><td class="num">${fmt(tot.bills)}</td><td class="num">${pct(tot.bills)}</td></tr>
       <tr><td style="padding-left:1.3rem"><span class="r-dot" style="background:${R_SPENT.Misc}"></span>Spent → Misc</td><td class="num">${fmt(tot.misc)}</td><td class="num">${pct(tot.misc)}</td></tr>
-      <tr><td style="padding-left:1.3rem"><span class="r-dot" style="background:${R_SPENT.Other}"></span>Spent → Other (derived)</td>
+      <tr><td style="padding-left:1.3rem"><span class="r-dot" style="background:${R_SPENT.Other}"></span>Spent → Leftover (derived)</td>
         <td class="num"${tot.other < 0 ? ' style="color:#b91c1c;font-weight:900"' : ''}>${tot.other < 0 ? '−' + fmt(-tot.other) + ' overspent' : fmt(tot.other)}</td>
         <td class="num">${tot.other >= 0 ? pct(tot.other) : '-'}</td></tr>
       </tbody></table></div>`;
