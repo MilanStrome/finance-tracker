@@ -2790,7 +2790,8 @@ const MON = (() => {
     const adhocBucket = type === 'AdHocInvest'
       ? (opts.bucketMode || (inst ? (inst.bucket || 'Invested') : 'Invested')) : '';
     const amount = pending || isNew
-      ? (row.actualAmount !== '' && row.actualAmount != null ? row.actualAmount : row.expectedAmount)
+      ? (row.actualAmount !== '' && row.actualAmount != null ? row.actualAmount
+        : (row.expectedAmount ?? opts.presetAmount)) // "Save the rest" pre-fills the leftover
       : row.actualAmount;
     const sb = salaryBank();
     let f = '';
@@ -3003,6 +3004,7 @@ const MON = (() => {
       if (act === 'add-income') logForm({ type: 'OtherIncome' });
       if (act === 'add-invest') logForm({ type: 'AdHocInvest' });
       if (act === 'add-saved') logForm({ type: 'AdHocInvest', bucketMode: 'Saved' });
+      if (act === 'save-rest') logForm({ type: 'AdHocInvest', bucketMode: 'Saved', presetAmount: Number(btn.dataset.amt) || '' });
       if (act === 'add-expense') logForm({ type: 'MiscExpense' });
       if (act === 'add-transfer') logForm({ type: 'Transfer' });
       if (act === 'add-prepay') {
@@ -3105,6 +3107,10 @@ const DASH = (() => {
     flow += `<div class="flow-spentline">Spent: Bills ${fmt(b.bills)} · Misc ${fmt(b.misc)} · `
       + (b.other >= 0
         ? `Other (derived) ${fmt(b.other)} ${TIP.icon('otherDerived')}`
+          + (b.other > 0 && b.totalIn > 0 && !MON.isClosed(key)
+            ? ` <button type="button" class="mini-btn" data-act="save-rest" data-amt="${b.other}"
+                 style="min-height:32px;padding:.15rem .6rem;font-size:.75rem;margin-left:.3rem"
+                 title="Log the leftover as Saved - amount pre-filled, adjust if some was cash spending">💾 Save the rest</button>` : '')
         : `<span class="overspent">Overspent from savings ${fmt(-b.other)}</span> ${TIP.icon('overspent')}`)
       + `</div>`;
     if (b.saved === 0 && b.totalIn > 0)
