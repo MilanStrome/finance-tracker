@@ -2584,7 +2584,10 @@ const MON = (() => {
     if (l.type === 'Transfer' || l.type === 'Salary' || l.type === 'OtherIncome') return null;
     if (l.type === 'MiscExpense') return 'Spent';
     if (l.type === 'Prepayment') return 'Loan';
-    if (l.type === 'AdHocInvest') return 'Invested';
+    if (l.type === 'AdHocInvest') { // instrument-driven: ad-hoc into a Saved instrument counts as Saved
+      const inst = l.instrumentId && FT.findRow('instruments', l.instrumentId);
+      return inst ? (inst.bucket || 'Invested') : 'Invested';
+    }
     const inst = l.instrumentId && FT.findRow('instruments', l.instrumentId);
     return inst ? (inst.bucket || REG.catMeta(inst.category).bucket || null) : null;
   }
@@ -2641,8 +2644,11 @@ const MON = (() => {
     const inst = instOf(l);
     return inst ? inst.nickname : (l.description || TYPE_META[l.type].label);
   };
+  const metaOf = l => (l.type === 'AdHocInvest' && logBucket(l) === 'Saved')
+    ? Object.assign({}, TYPE_META.AdHocInvest, { label: 'Saved', icon: '🏦' })
+    : TYPE_META[l.type];
   function logSub(l) {
-    const bits = [TYPE_META[l.type].label];
+    const bits = [metaOf(l).label];
     if (l.subCategory) bits.push(l.subCategory + (l.lentCounterparty ? ': ' + l.lentCounterparty : ''));
     bits.push(FT.fmtDate(l.date));
     if (l.type === 'Transfer') bits.push(`${bankNick(l.fromBankId) || '?'} → ${bankNick(l.toBankId) || '?'}`);
@@ -2661,7 +2667,7 @@ const MON = (() => {
     return `${FT.fmtINR(l.expectedAmount)} = ${o.total} × ${FT.fmtINR(per)} (${parts})`;
   }
   function logRow(l, closed) {
-    const meta = TYPE_META[l.type];
+    const meta = metaOf(l);
     const pending = l.status === 'Pending';
     const amt = pending ? l.expectedAmount : l.actualAmount;
     const inst = instOf(l);
@@ -2716,6 +2722,7 @@ const MON = (() => {
       !hasSalary ? '<button class="mini-btn" data-act="add-salary">＋ Salary</button>' : '',
       '<button class="mini-btn" data-act="add-income">＋ Income</button>',
       '<button class="mini-btn" data-act="add-invest">＋ Investment</button>',
+      '<button class="mini-btn" data-act="add-saved">＋ Saved</button>',
       '<button class="mini-btn" data-act="add-expense">＋ Expense</button>',
       '<button class="mini-btn" data-act="add-transfer">＋ Transfer</button>',
       '<button class="mini-btn" data-act="add-prepay">＋ Prepayment</button>'
@@ -2779,6 +2786,9 @@ const MON = (() => {
     const [y, m] = viewMonth.split('-').map(Number);
     const defDate = row.date || dateISO(y, m, clampDay(y, m, new Date().getDate()));
     const inst = row.instrumentId ? FT.findRow('instruments', row.instrumentId) : null;
+    // ad-hoc entries follow their instrument's bucket: '+ Saved' opens the same form in Saved mode
+    const adhocBucket = type === 'AdHocInvest'
+      ? (opts.bucketMode || (inst ? (inst.bucket || 'Invested') : 'Invested')) : '';
     const amount = pending || isNew
       ? (row.actualAmount !== '' && row.actualAmount != null ? row.actualAmount : row.expectedAmount)
       : row.actualAmount;
@@ -2806,16 +2816,20 @@ const MON = (() => {
         + fld('Date', dateIn('lf_date', defDate))
         + fld('Notes', txtIn('lf_notes', row.notes, 'e.g. skipped one Wednesday'));
     } else if (type === 'AdHocInvest') {
-      const investCats = REG.allCategories(false).filter(c => c.bucket === 'Invested');
-      f = fld('Instrument *', `<select id="lf_inst">${instOptions('Invested', row.instrumentId,
+      const savedMode = adhocBucket === 'Saved';
+      const cats = REG.allCategories(false).filter(c => c.bucket === adhocBucket);
+      f = fld(savedMode ? 'Saved into * ' + TIP.icon('saved') : 'Instrument *',
+          `<select id="lf_inst">${instOptions(adhocBucket, row.instrumentId,
           '<option value="__new__">➕ New instrument…</option>')}</select>`, true)
         + `<div class="field span2" id="lfw_new" hidden><div class="inline-add" style="margin-top:0">
-            ${txtIn('lf_newName', '', 'Nickname (e.g. NFO lumpsum)')}
-            <select id="lf_newCat">${investCats.map(c => `<option>${esc(c.name)}</option>`).join('')}</select>
+            ${txtIn('lf_newName', '', savedMode ? 'Nickname (e.g. Emergency buffer)' : 'Nickname (e.g. NFO lumpsum)')}
+            <select id="lf_newCat">${cats.map(c => `<option>${esc(c.name)}</option>`).join('')}</select>
           </div><div class="hint">Created as an ad-hoc instrument - add reference no. later in Registry.</div></div>`
         + fld('Amount (₹) *', numIn('lf_amount', amount))
         + fld('Date', dateIn('lf_date', defDate))
-        + fld('Paid from', `<select id="lf_fromBank">${REG.activeBankOptions(row.fromBankId)}</select>`)
+        + fld(savedMode ? 'Moved from (optional)' : 'Paid from',
+          `<select id="lf_fromBank">${REG.activeBankOptions(row.fromBankId)}</select>`
+          + (savedMode ? '<div class="hint">Leave blank if the money simply stays in its bank - pick an account only if it actually moved (e.g. into an RD).</div>' : ''))
         + fld('Notes', txtIn('lf_notes', row.notes));
     } else if (type === 'Prepayment') {
       f = fld('Loan * ' + TIP.icon('prepayment'), `<select id="lf_inst">${instOptions('Loan', row.instrumentId)}</select>`, true)
@@ -2841,7 +2855,7 @@ const MON = (() => {
         + fld('Notes', txtIn('lf_notes', row.notes));
     }
 
-    const title = isNew ? '＋ ' + TYPE_META[type].label
+    const title = isNew ? '＋ ' + (adhocBucket === 'Saved' ? 'Saved' : TYPE_META[type].label)
       : (pending ? 'Confirm - ' : 'Edit - ') + esc(logTitle(row));
     ui.openModal(title, `<form id="logFm" class="form-grid" novalidate>${f}${actions(pending ? '✓ Confirm' : 'Save')}</form>`);
 
@@ -2889,7 +2903,7 @@ const MON = (() => {
           if (!name) return ui.toast('Name the new instrument');
           const cat = val('lf_newCat');
           const created = FT.addRow('instruments', {
-            id: FT.uid('ins'), nickname: name, category: cat, bucket: 'Invested',
+            id: FT.uid('ins'), nickname: name, category: cat, bucket: adhocBucket || 'Invested',
             frequency: 'AdHoc', amount: '', dueDay: '', dueMonth: '', daysOfWeek: '',
             paidFromBankId: patch.fromBankId || '', toBankId: '', referenceNo: '', institution: '',
             sumAssured: '', outstanding: '', lockinMaturityDate: '', taxSection: REG.catMeta(cat).tax || 'NONE',
@@ -2988,6 +3002,7 @@ const MON = (() => {
       if (act === 'add-salary') logForm({ type: 'Salary' });
       if (act === 'add-income') logForm({ type: 'OtherIncome' });
       if (act === 'add-invest') logForm({ type: 'AdHocInvest' });
+      if (act === 'add-saved') logForm({ type: 'AdHocInvest', bucketMode: 'Saved' });
       if (act === 'add-expense') logForm({ type: 'MiscExpense' });
       if (act === 'add-transfer') logForm({ type: 'Transfer' });
       if (act === 'add-prepay') {
