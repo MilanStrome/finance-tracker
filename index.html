@@ -30,7 +30,7 @@
   --red: #dc2626;
   --green: #16a34a;
   --amber: #d97706;
-  --purple: #9333ea;
+  --brown: #795548;
   --pink: #db2777;
   --red-soft: rgba(220, 38, 38, .12);
   --green-soft: rgba(22, 163, 74, .12);
@@ -43,7 +43,7 @@
   --red: #f87171;
   --green: #4ade80;
   --amber: #fbbf24;
-  --purple: #c084fc;
+  --brown: #9c7a63;
   --pink: #f472b6;
   --red-soft: rgba(248, 113, 113, .16);
   --green-soft: rgba(74, 222, 128, .14);
@@ -525,8 +525,8 @@ table.reg tr.archived td { opacity: .6; }
 .seg-Loan { background: var(--red); }
 .seg-Saved { background: var(--amber); }
 .seg-Spent { background: var(--muted); }
-/* Spent parts: purple bills, pink misc; Other = pale "unfilled" (unaccounted money) */
-.seg-Bills { background: var(--purple); }
+/* Spent parts: brown bills (only hue no theme accent uses), pink misc; Other = pale "unfilled" */
+.seg-Bills { background: var(--brown); }
 .seg-Misc { background: var(--pink); }
 .seg-Other { background: var(--border); box-shadow: inset 0 0 0 1px var(--muted); }
 .flow-legend { display: flex; flex-wrap: wrap; gap: .35rem .95rem; font-size: .82rem; }
@@ -4758,7 +4758,7 @@ const REP = (() => {
       </div></div>`;
 
     /* 2 - money flow */
-    const R_SPENT = { Bills: '#7e22ce', Misc: '#db2777', Other: '#d1d5db' };
+    const R_SPENT = { Bills: '#6d4c41', Misc: '#db2777', Other: '#d1d5db' };
     const barSegs = segs.slice(0, 4).map(([n, v]) => [n, v, SEG_COLORS[n]]).concat([
       ['Spent → Bills', tot.bills, R_SPENT.Bills],
       ['Spent → Misc', tot.misc, R_SPENT.Misc],
