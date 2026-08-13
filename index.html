@@ -521,11 +521,16 @@ table.reg tr.archived td { opacity: .6; }
 .seg-Loan { background: var(--red); }
 .seg-Saved { background: var(--amber); }
 .seg-Spent { background: var(--muted); }
+/* Spent sub-segments: solid = tracked bills, light = logged misc, striped = unaccounted */
+.seg-Bills { background: var(--muted); }
+.seg-Misc { background: var(--muted); opacity: .65; }
+.seg-Other { background: repeating-linear-gradient(135deg, var(--muted) 0 4px, transparent 4px 9px); }
 .flow-legend { display: flex; flex-wrap: wrap; gap: .35rem .95rem; font-size: .82rem; }
-.flow-legend .dot {
+.flow-legend .dot, .flow-spentline .dot {
   display: inline-block; width: 10px; height: 10px; border-radius: 50%;
   margin-right: .32rem; vertical-align: baseline;
 }
+.flow-spentline .dot { border-radius: 3px; }
 .flow-spentline { font-size: .82rem; color: var(--muted); margin-top: .6rem; }
 .overspent { color: var(--red); font-weight: 700; }
 
@@ -3099,14 +3104,20 @@ const DASH = (() => {
       <div class="flow-total">Total in <b>${fmt(b.totalIn)}</b> ${TIP.icon('totalIn')}
         <span class="muted small">salary ${fmt(b.salary)}${b.otherIncome ? ' + other ' + fmt(b.otherIncome) : ''}</span></div>`;
     if (denom > 0) {
-      flow += `<div class="split-bar">${segs.filter(s => s.v > 0).map(s =>
-        `<span class="seg-${s.cls}" style="flex:${(s.v / denom).toFixed(4)}" title="${s.label} ${fmt(s.v)}"></span>`).join('')}</div>`;
+      // the Spent portion is drawn as its three parts: Bills | Misc | Other (striped = unaccounted)
+      const barSegs = segs.slice(0, 4).concat([
+        { label: 'Spent → Bills', cls: 'Bills', v: b.bills },
+        { label: 'Spent → Misc', cls: 'Misc', v: b.misc },
+        { label: 'Spent → Other (derived, unaccounted)', cls: 'Other', v: Math.max(0, b.other) }
+      ]);
+      flow += `<div class="split-bar">${barSegs.filter(s => s.v > 0).map(s =>
+        `<span class="seg-${s.cls}" style="flex:${(s.v / denom).toFixed(4)}" title="${s.label} ${fmt(s.v)} (${pct(s.v)})"></span>`).join('')}</div>`;
     }
     flow += `<div class="flow-legend">${segs.map(s =>
       `<span><span class="dot seg-${s.cls}"></span>${s.label} <b>${fmt(s.v)}</b> <span class="muted">${pct(s.v)}</span>${TIP.icon(s.tip)}</span>`).join('')}</div>`;
-    flow += `<div class="flow-spentline">Spent: Bills ${fmt(b.bills)} · Misc ${fmt(b.misc)} · `
+    flow += `<div class="flow-spentline">Spent: <span class="dot seg-Bills"></span>Bills ${fmt(b.bills)} · <span class="dot seg-Misc"></span>Misc ${fmt(b.misc)} · `
       + (b.other >= 0
-        ? `Other (derived) ${fmt(b.other)} ${TIP.icon('otherDerived')}`
+        ? `<span class="dot seg-Other"></span>Other (derived) ${fmt(b.other)} ${TIP.icon('otherDerived')}`
           + (b.other > 0 && b.totalIn > 0 && !MON.isClosed(key)
             ? ` <button type="button" class="mini-btn" data-act="save-rest" data-amt="${b.other}"
                  style="min-height:32px;padding:.15rem .6rem;font-size:.75rem;margin-left:.3rem"
@@ -4748,15 +4759,22 @@ const REP = (() => {
       </div></div>`;
 
     /* 2 - money flow */
+    const R_SPENT = { Bills: '#4b5563', Misc: '#9ca3af',
+      Other: 'repeating-linear-gradient(135deg,#6b7280 0 4px,#e5e7eb 4px 9px)' };
+    const barSegs = segs.slice(0, 4).map(([n, v]) => [n, v, SEG_COLORS[n]]).concat([
+      ['Spent → Bills', tot.bills, R_SPENT.Bills],
+      ['Spent → Misc', tot.misc, R_SPENT.Misc],
+      ['Spent → Other (derived)', Math.max(0, tot.other), R_SPENT.Other]
+    ]);
     h += `<div class="r-section"><h2>Money flow</h2>
-      <div class="r-bar">${segs.filter(s => s[1] > 0).map(([n, v]) =>
-        `<span style="flex:${(v / denom).toFixed(4)};background:${SEG_COLORS[n]}"></span>`).join('')}</div>
+      <div class="r-bar">${barSegs.filter(s => s[1] > 0).map(([n, v, bg]) =>
+        `<span style="flex:${(v / denom).toFixed(4)};background:${bg}" title="${n}"></span>`).join('')}</div>
       <table class="r-table"><thead><tr><th>Bucket</th><th class="num">Amount</th><th class="num">% of total in</th></tr></thead><tbody>
       ${segs.map(([n, v]) => `<tr><td><span class="r-dot" style="background:${SEG_COLORS[n]}"></span>${n}</td>
         <td class="num">${fmt(v)}</td><td class="num">${pct(v)}</td></tr>`).join('')}
-      <tr><td style="padding-left:1.3rem">Spent → Bills</td><td class="num">${fmt(tot.bills)}</td><td class="num">${pct(tot.bills)}</td></tr>
-      <tr><td style="padding-left:1.3rem">Spent → Misc</td><td class="num">${fmt(tot.misc)}</td><td class="num">${pct(tot.misc)}</td></tr>
-      <tr><td style="padding-left:1.3rem">Spent → Other (derived)</td>
+      <tr><td style="padding-left:1.3rem"><span class="r-dot" style="background:${R_SPENT.Bills}"></span>Spent → Bills</td><td class="num">${fmt(tot.bills)}</td><td class="num">${pct(tot.bills)}</td></tr>
+      <tr><td style="padding-left:1.3rem"><span class="r-dot" style="background:${R_SPENT.Misc}"></span>Spent → Misc</td><td class="num">${fmt(tot.misc)}</td><td class="num">${pct(tot.misc)}</td></tr>
+      <tr><td style="padding-left:1.3rem"><span class="r-dot" style="background:${R_SPENT.Other}"></span>Spent → Other (derived)</td>
         <td class="num"${tot.other < 0 ? ' style="color:#b91c1c;font-weight:900"' : ''}>${tot.other < 0 ? '−' + fmt(-tot.other) + ' overspent' : fmt(tot.other)}</td>
         <td class="num">${tot.other >= 0 ? pct(tot.other) : '-'}</td></tr>
       </tbody></table></div>`;
