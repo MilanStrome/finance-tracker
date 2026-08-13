@@ -809,6 +809,23 @@ table.r-table tr { break-inside: avoid; }
 }
 .tip-icon:hover, .tip-icon:focus-visible { opacity: 1; color: var(--accent-strong); }
 body.no-tooltips .tip-icon { display: none; }
+.confirm-overlay {
+  position: fixed; inset: 0; z-index: 450; /* above modals (90) and the lock screen (300) */
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center; padding: 1.2rem;
+}
+.confirm-overlay[hidden] { display: none; }
+.confirm-box {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 1.15rem 1.25rem;
+  width: 100%; max-width: 430px;
+}
+.confirm-box p { font-size: .95rem; line-height: 1.55; margin-bottom: 1.05rem; }
+.confirm-actions { display: flex; gap: .6rem; justify-content: flex-end; }
+#confirmYes.danger-btn { background: var(--red); color: #fff; }
+#confirmYes.danger-btn:hover { background: var(--red); opacity: .88; }
+
 .tip-bubble {
   position: fixed; z-index: 400; max-width: 280px;
   background: var(--surface); color: var(--text);
@@ -1072,6 +1089,9 @@ body.no-tooltips .tip-icon { display: none; }
         <button class="mini-btn" data-act="recently-deleted">🗑 Recently deleted (<span id="delCount">0</span>)</button>
         <button class="mini-btn danger" data-act="clear-local">Clear local data</button>
       </div>
+      <div class="row-actions" style="margin:.3rem 0 .7rem">
+        <button class="mini-btn danger" data-act="clear-everything">🗑 Clear ALL data (tool + Sheet)</button>
+      </div>
       <p class="muted small">Import merges by id - the newer <code>updatedAt</code> wins. Deleted entries can be restored for 30 days. Clearing local data never touches your Sheet.</p>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
       <details class="setup"><summary>📋 One-time Sheet setup (~10 min)</summary>
@@ -1158,6 +1178,16 @@ body.no-tooltips .tip-icon { display: none; }
       <button class="icon-btn" data-close title="Close">✕</button>
     </div>
     <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="confirm-overlay" id="confirmOverlay" hidden>
+  <div class="confirm-box" role="alertdialog" aria-modal="true" aria-describedby="confirmMsg">
+    <p id="confirmMsg"></p>
+    <div class="confirm-actions">
+      <button type="button" class="btn secondary" id="confirmNo">Cancel</button>
+      <button type="button" class="btn" id="confirmYes">OK</button>
+    </div>
   </div>
 </div>
 
@@ -1507,6 +1537,25 @@ const ui = (() => {
     toastTimer = setTimeout(() => el.classList.remove('show'), ms || 2400);
   }
 
+  /* ---------- HTML confirm (replaces native confirm()) ---------- */
+  let confirmResolve = null;
+  function confirmDlg(message, opts = {}) {
+    return new Promise(resolve => {
+      if (confirmResolve) confirmResolve(false); // never stack
+      confirmResolve = resolve;
+      document.getElementById('confirmMsg').textContent = message;
+      const yes = document.getElementById('confirmYes');
+      yes.textContent = opts.okLabel || 'OK';
+      yes.classList.toggle('danger-btn', !!opts.danger);
+      document.getElementById('confirmOverlay').hidden = false;
+      setTimeout(() => document.getElementById(opts.danger ? 'confirmNo' : 'confirmYes').focus(), 30);
+    });
+  }
+  function settleConfirm(v) {
+    document.getElementById('confirmOverlay').hidden = true;
+    if (confirmResolve) { confirmResolve(v); confirmResolve = null; }
+  }
+
   /* ---------- modal ---------- */
   function openModal(title, bodyHTML) {
     document.getElementById('modalTitle').textContent = title;
@@ -1609,8 +1658,15 @@ const ui = (() => {
     overlay.addEventListener('click', e => {
       if (e.target === overlay || e.target.closest('[data-close]')) closeModal();
     });
+    // confirm dialog wiring
+    const cOverlay = document.getElementById('confirmOverlay');
+    document.getElementById('confirmYes').addEventListener('click', () => settleConfirm(true));
+    document.getElementById('confirmNo').addEventListener('click', () => settleConfirm(false));
+    cOverlay.addEventListener('click', e => { if (e.target === cOverlay) settleConfirm(false); });
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && !overlay.hidden) closeModal();
+      if (e.key !== 'Escape') return;
+      if (!cOverlay.hidden) { settleConfirm(false); return; }
+      if (!overlay.hidden) closeModal();
     });
 
     TIP.init();
@@ -1628,7 +1684,7 @@ const ui = (() => {
     showScreen(last);
   }
 
-  return { init, toast, showScreen, applyAppearance, openModal, closeModal };
+  return { init, toast, showScreen, applyAppearance, openModal, closeModal, confirm: confirmDlg };
 })();
 
 /* ============================================================
@@ -1843,10 +1899,10 @@ const REG = (() => {
     });
   }
 
-  function deleteBank(id) {
+  async function deleteBank(id) {
     const used = FT.activeRows('instruments').filter(i => i.paidFromBankId === id || i.toBankId === id).length;
     if (used) return ui.toast(`Used by ${used} instrument${used > 1 ? 's' : ''} - archive it instead`);
-    if (!confirm('Delete this account? You can restore it from Recently deleted for 30 days.')) return;
+    if (!await ui.confirm('Delete this account? You can restore it from Recently deleted for 30 days.', { okLabel: 'Delete', danger: true })) return;
     FT.softDelete('banks', id);
     renderBanks(); renderSettings();
     ui.toast('Account deleted');
@@ -2010,8 +2066,8 @@ const REG = (() => {
       ui.toast(toArchived ? 'Archived - kept in history & FY totals' : 'Restored');
     });
     const delBtn = document.querySelector('#instForm [data-fact="del-inst"]');
-    if (delBtn) delBtn.addEventListener('click', () => {
-      if (!confirm('Delete this instrument? You can restore it from Recently deleted for 30 days.')) return;
+    if (delBtn) delBtn.addEventListener('click', async () => {
+      if (!await ui.confirm('Delete this instrument? You can restore it from Recently deleted for 30 days.', { okLabel: 'Delete', danger: true })) return;
       FT.softDelete('instruments', existing.id);
       ui.closeModal();
       renderRegistry();
@@ -2298,10 +2354,10 @@ const REG = (() => {
     ui.toast(archived ? 'Category archived - hidden from new-instrument dropdown' : 'Category restored');
   }
 
-  function deleteCategory(name) {
+  async function deleteCategory(name) {
     const used = FT.activeRows('instruments').filter(i => i.category === name).length;
     if (used) return ui.toast(`Used by ${used} instrument${used > 1 ? 's' : ''} - archive it instead`);
-    if (!confirm(`Delete custom category "${name}"?`)) return;
+    if (!await ui.confirm(`Delete custom category "${name}"?`, { okLabel: 'Delete', danger: true })) return;
     const cust = customCategories();
     delete cust[name];
     saveCustomCategories(cust);
@@ -2334,7 +2390,7 @@ const REG = (() => {
     });
 
     // registry actions + filters
-    document.getElementById('screen-registry').addEventListener('click', e => {
+    document.getElementById('screen-registry').addEventListener('click', async e => {
       const btn = e.target.closest('[data-act]');
       if (!btn) return;
       const id = btn.dataset.id;
@@ -2343,8 +2399,8 @@ const REG = (() => {
       if (act === 'edit-inst') instrumentForm(FT.findRow('instruments', id));
       if (act === 'arch-inst') { FT.updateRow('instruments', id, { status: 'Archived' }); renderRegistry(); ui.toast('Archived - kept in history & FY totals'); }
       if (act === 'unarch-inst') { FT.updateRow('instruments', id, { status: 'Active' }); renderRegistry(); ui.toast('Restored'); }
-      if (act === 'del-inst') {
-        if (!confirm('Delete this instrument? You can restore it from Recently deleted for 30 days.')) return;
+      if (act === 'del-inst') { // legacy path (rows now use the edit modal), kept safe
+        if (!await ui.confirm('Delete this instrument? You can restore it from Recently deleted for 30 days.', { okLabel: 'Delete', danger: true })) return;
         FT.softDelete('instruments', id);
         renderRegistry(); ui.toast('Instrument deleted');
       }
@@ -2908,7 +2964,7 @@ const MON = (() => {
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && !pop.hidden) pop.hidden = true;
     });
-    document.getElementById('screen-month').addEventListener('click', e => {
+    document.getElementById('screen-month').addEventListener('click', async e => {
       const btn = e.target.closest('[data-act]');
       if (!btn) return;
       const act = btn.dataset.act, id = btn.dataset.id;
@@ -2926,7 +2982,7 @@ const MON = (() => {
         const l = FT.findRow('monthlyLog', id);
         const genNote = l && l.instrumentId && l.status === 'Pending'
           ? ' It will NOT regenerate this month (delete = skip).' : '';
-        if (!confirm('Delete this entry?' + genNote)) return;
+        if (!await ui.confirm('Delete this entry?' + genNote, { okLabel: 'Delete', danger: true })) return;
         FT.softDelete('monthlyLog', id); renderMonth(); ui.toast('Entry deleted');
       }
       if (act === 'add-salary') logForm({ type: 'Salary' });
@@ -3488,7 +3544,7 @@ const SYNC = (() => {
   const COLLS = ['banks', 'instruments', 'monthlyLog', 'tasks', 'config'];
   const PURGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-  const APPS_SCRIPT_CODE = `// Finance Tracker Sync - v1.2 (adds Tasks tab + new instrument fields)
+  const APPS_SCRIPT_CODE = `// Finance Tracker Sync - v1.3 (adds Tasks tab, new instrument fields, clearAll)
 // Deploy: New deployment → Web app → Execute as: Me → Access: Anyone
 // ("Anyone" is required - browser fetch can't sign in to Google, and the
 //  long /exec URL is itself the secret. Keep it private.)
@@ -3549,7 +3605,7 @@ function json_(o) {
 
 function doGet(e) {
   const action = (e.parameter && e.parameter.action) || 'pull';
-  if (action === 'ping') return json_({ ok: true, version: '1.2' });
+  if (action === 'ping') return json_({ ok: true, version: '1.3' });
   if (action === 'pull') {
     return json_({ ok: true,
       banks: readTab_('banks'),
@@ -3565,6 +3621,14 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    if (body.action === 'clearAll') {
+      // wipe every tab back to just its header row
+      Object.keys(TABS).forEach(function (k) {
+        const sh = ensureSheet_(TABS[k], HEADERS[k]);
+        if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+      });
+      return json_({ ok: true, cleared: true });
+    }
     if (body.action !== 'push') return json_({ ok: false, error: 'unknown action' });
     const c = body.changes || {};
     const upserted = upsertTab_('banks', c.banks) + upsertTab_('instruments', c.instruments)
@@ -3759,6 +3823,14 @@ function doPost(e) {
     Object.keys(st.config).forEach(k => queue.config.add(k));
     saveQueue(); updateDot(); renderStatus();
   }
+  async function clearAllRemote() { // wipe every Sheet tab to header-only (v1.3 script)
+    clearTimeout(debounceTimer); // no stale push may land after the wipe
+    const j = await api(undefined, { action: 'clearAll' });
+    if (!j.cleared) throw new Error('Apps Script did not confirm the wipe - update it to v1.3 (Settings → Data)');
+    COLLS.forEach(c => queue[c].clear());
+    saveQueue();
+    return j;
+  }
   async function syncNow(full) {
     if (!url()) return ui.toast('Paste your Web App URL first');
     const p = await pull();
@@ -3853,15 +3925,15 @@ function doPost(e) {
       if (!e.target.checked) clearTimeout(debounceTimer); // cancel any armed push
       ui.toast(e.target.checked ? 'Auto-sync on' : 'Auto-sync off - use Sync now');
     });
-    document.getElementById('screen-settings').addEventListener('click', e => {
+    document.getElementById('screen-settings').addEventListener('click', async e => {
       const btn = e.target.closest('[data-act]');
       if (!btn) return;
       if (btn.dataset.act === 'sync-test') testConnection();
       if (btn.dataset.act === 'sync-now') syncNow(false);
-      if (btn.dataset.act === 'sync-full') {
-        if (confirm('Re-send every bank, instrument, entry and setting to the Sheet? Existing rows are overwritten by id - nothing is duplicated.')) syncNow(true);
-      }
       if (btn.dataset.act === 'copy-script') { e.preventDefault(); copyScript(); }
+      if (btn.dataset.act === 'sync-full') {
+        if (await ui.confirm('Re-send every bank, instrument, entry and setting to the Sheet? Existing rows are overwritten by id - nothing is duplicated.', { okLabel: 'Push everything' })) syncNow(true);
+      }
     });
 
     // offline queue retry: on reconnect + on open (§5.1)
@@ -3876,7 +3948,7 @@ function doPost(e) {
   }
 
   return { init, onShow, syncNow, testConnection, pull, flush, queuedCount, updateDot,
-    bootSync, enqueue: onMutate };
+    bootSync, enqueue: onMutate, clearAllRemote };
 })();
 
 /* ============================================================
@@ -4202,8 +4274,79 @@ const POL = (() => {
       : '<p class="muted small">Nothing in the bin - deleted items appear here for 30 days.</p>');
   }
 
-  function clearLocalData() {
-    if (!confirm('Clear ALL local data on this device? Your Google Sheet is untouched - you can pull it back after reconfiguring sync. Consider Export JSON first.')) return;
+  /* ---------- Clear ALL data (device + Sheet) - deliberately hard to trigger ---------- */
+  function clearAllModal() {
+    const urlSet = String(FT.getConfig('syncUrl') || '').trim();
+    if (!urlSet) return ui.toast('No sync URL configured - use "Clear local data" for this device only', 5000);
+
+    // forced backup BEFORE the confirm input exists
+    const s = FT.state();
+    const d = new Date();
+    const fname = `finance-backup-${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}.json`;
+    const payload = JSON.stringify({
+      app: 'finance-tracker', version: 1, exportedAt: FT.nowISO(),
+      banks: s.banks, instruments: s.instruments, monthlyLog: s.monthlyLog,
+      tasks: s.tasks || [], config: s.config
+    }, null, 1);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
+
+    const pinNeeded = pinEnabled();
+    ui.openModal('Clear ALL data', `
+      <div class="banner" style="background:var(--red-soft);color:var(--red)">⚠️ This permanently deletes ALL data from this device AND your Google Sheet. This cannot be undone.</div>
+      <p class="small" style="margin:.5rem 0">✅ Backup downloaded: <b>${fname}</b> - keep it safe. Import JSON can restore everything later.</p>
+      ${pinNeeded ? `<div class="field"><label>Enter your PIN</label>
+        <input type="password" id="ca_pin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••"></div>` : ''}
+      <div class="field"><label>Type <b>DELETE ALL</b> to confirm</label>
+        <input type="text" id="ca_confirm" autocomplete="off" placeholder="DELETE ALL"></div>
+      <div class="form-actions modal-pinned">
+        <span class="small muted" id="ca_status" style="margin-right:auto;align-self:center"></span>
+        <button type="button" class="btn secondary" data-close>Cancel</button>
+        <button type="button" class="btn" id="ca_btn" disabled style="background:var(--red);color:#fff">🗑 Delete everything</button>
+      </div>`);
+
+    const btn = $('ca_btn');
+    const gate = () => {
+      btn.disabled = !($('ca_confirm').value === 'DELETE ALL'
+        && (!pinNeeded || $('ca_pin').value.length === 4));
+    };
+    $('ca_confirm').addEventListener('input', gate);
+    if (pinNeeded) $('ca_pin').addEventListener('input', gate);
+
+    btn.addEventListener('click', async () => {
+      if (pinNeeded && await sha256hex($('ca_pin').value) !== FT.getConfig('pinHash')) {
+        $('ca_pin').value = ''; gate();
+        return ui.toast('Wrong PIN - nothing was deleted');
+      }
+      btn.disabled = true;
+      $('ca_status').textContent = 'Clearing Sheet…';
+      try {
+        await SYNC.clearAllRemote(); // Sheet FIRST - if this fails, nothing local is touched
+      } catch (err) {
+        $('ca_status').textContent = '';
+        gate();
+        return ui.toast('Sheet clear FAILED - nothing was deleted. ' + String(err.message || err), 7000);
+      }
+      // Sheet is empty - wipe this device, keeping only appearance prefs + the sync URL
+      const keep = {};
+      ['theme', 'darkMode', 'font', 'showTooltips', 'syncUrl'].forEach(k => {
+        const row = FT.state().config[k];
+        if (row) keep[k] = row;
+      });
+      localStorage.setItem('financeTracker.v1',
+        JSON.stringify({ banks: [], instruments: [], monthlyLog: [], tasks: [], config: keep }));
+      ['financeTracker.syncQueue.v1', 'financeTracker.lastSync.v1', ATT_KEY, LOCKOUT_KEY]
+        .forEach(k => localStorage.removeItem(k));
+      location.reload(); // fresh onboarding
+    });
+  }
+
+  async function clearLocalData() {
+    if (!await ui.confirm('Clear ALL local data on this device? Your Google Sheet is untouched - you can pull it back after reconfiguring sync. Consider Export JSON first.', { okLabel: 'Clear this device', danger: true })) return;
     ['financeTracker.v1', 'financeTracker.syncQueue.v1', 'financeTracker.lastSync.v1',
      ATT_KEY, LOCKOUT_KEY].forEach(k => localStorage.removeItem(k));
     location.reload();
@@ -4396,6 +4539,7 @@ const POL = (() => {
       if (act === 'import-json') $('importFile').click();
       if (act === 'recently-deleted') recentlyDeletedModal();
       if (act === 'clear-local') clearLocalData();
+      if (act === 'clear-everything') clearAllModal();
       if (act === 'pin-enable') pinForm('enable');
       if (act === 'pin-change') pinForm('change');
       if (act === 'pin-disable') pinForm('disable');
@@ -4914,8 +5058,8 @@ const TSK = (() => {
         </div>
       </form>`);
     const delBtn = document.querySelector('#taskFm [data-fact="del-task"]');
-    if (delBtn) delBtn.addEventListener('click', () => {
-      if (!confirm('Delete this task? You can restore it from Recently deleted for 30 days.')) return;
+    if (delBtn) delBtn.addEventListener('click', async () => {
+      if (!await ui.confirm('Delete this task? You can restore it from Recently deleted for 30 days.', { okLabel: 'Delete', danger: true })) return;
       FT.softDelete('tasks', existing.id);
       ui.closeModal(); render();
       ui.toast('Task deleted');
