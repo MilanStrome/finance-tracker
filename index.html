@@ -113,6 +113,9 @@
    BASE
    ============================================================ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
+/* the UA's [hidden] rule loses to any class that sets display (.btn, .tip-icon, …),
+   which would leave "hidden" controls painted and consuming layout space */
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 [data-font="snpro"] body   { font-family: 'SN Pro', system-ui, sans-serif; font-weight: 900; }
 [data-font="calibri"] body { font-family: Calibri, Carlito, sans-serif; }
@@ -746,8 +749,13 @@ details.setup ol { padding-left: 1.3rem; line-height: 1.9; }
 /* ============================================================
    MOBILE POLISH - dues list, month header, truncation, spacing
    ============================================================ */
-/* every due is listed; long lists scroll inside the card (no "+N more") */
-.dues-list { max-height: 55vh; overflow-y: auto; }
+/* dues expand inline - no internal scroll, the page scrolls naturally */
+.dues-more {
+  display: block; width: 100%; min-height: 44px; margin-top: .5rem; padding: .5rem;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: .85rem; font-weight: 700; color: var(--accent-strong);
+}
+.dues-more:hover, .dues-more:focus-visible { border-color: var(--accent); }
 .due-row .due-amt { flex: 0 0 auto; }
 /* long names never push amounts off-screen */
 .log-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -772,12 +780,19 @@ details.setup ol { padding-left: 1.3rem; line-height: 1.9; }
   .lbl-full { display: none; }
   .lbl-short { display: inline; }
   /* month header: one row - picker left, compact icon actions right */
-  #monthHead { flex-wrap: nowrap; gap: .4rem; }
-  #monthHead .month-nav { gap: .1rem; }
-  #monthHead #monthLabelBtn { padding: .4rem .55rem; white-space: nowrap; }
+  #monthHead { flex-wrap: nowrap; gap: .25rem; }
+  #monthHead .tip-icon { margin-left: .1rem; }
+  /* the picker is the only flexible item: it truncates before the row ever wraps */
+  #monthHead .month-nav { gap: .1rem; min-width: 0; }
+  #monthHead .month-nav .icon-btn { flex: 0 0 auto; }
+  #monthHead #monthLabelBtn {
+    padding: .4rem .45rem; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   #monthHead #monthBadge, #monthHead .tip-icon { flex: 0 0 auto; }
-  .act-btn { flex: 0 0 auto; min-width: 44px; padding: .55rem .7rem; }
-  .act-btn .btn-label { display: none; }
+  .act-btn { flex: 0 0 auto; min-width: 44px; padding: .55rem .45rem; gap: .25rem; }
+  /* Report stays icon-only; Close month keeps its (shortened) label */
+  .act-btn[data-act="open-report"] .btn-label { display: none; }
   /* slightly tighter chrome so content isn't squeezed into a narrow column */
   main { padding-left: .7rem; padding-right: .7rem; }
   .card { padding: .85rem .8rem; }
@@ -988,7 +1003,7 @@ body.no-tooltips .tip-icon { display: none; }
       <span id="monthBadge"></span>
       <button class="btn secondary act-btn" data-act="open-report" title="Print-friendly report - save as PDF"
         aria-label="Report"><span aria-hidden="true">📄</span><span class="btn-label">Report</span></button>
-      <button class="btn act-btn" id="closeMonthBtn" data-act="close-month" aria-label="Close month" hidden><span aria-hidden="true">✓</span><span class="btn-label">Close month</span></button>
+      <button class="btn act-btn" id="closeMonthBtn" data-act="close-month" aria-label="Close month" hidden><span aria-hidden="true">✓</span><span class="btn-label"><span class="lbl-full">Close month</span><span class="lbl-short">Close</span></span></button>
       <button type="button" class="tip-icon" data-tip="closeMonth" id="closeMonthTip" aria-label="Help" hidden>ⓘ</button>
     </div>
     <div id="onboardArea"></div>
@@ -3170,6 +3185,9 @@ const DASH = (() => {
   }
 
   /* ---------- This Month: flow card + 30-day dues ---------- */
+  const DUES_CAP = 12;
+  let duesExpanded = false;
+
   function monthExtrasHTML(key) {
     const b = monthBuckets(key);
     // 7-part view: the 4 real buckets + Spent shown directly as Bills / Misc / Other
@@ -3210,13 +3228,16 @@ const DASH = (() => {
     let duesHtml = '';
     if (dues.items.length) {
       const soonISO = addDaysISO(dues.aISO, 7);
-      // no truncation - every due is listed; the container scrolls if the list is long
+      // first 12, then expand the card inline (no internal scroll container)
+      const shown = duesExpanded ? dues.items : dues.items.slice(0, DUES_CAP);
       duesHtml = `<div class="card"><h3>📆 Upcoming dues - next 30 days
         <span class="muted small">(${dues.items.length})</span></h3>
-        <div class="dues-list">${dues.items.map(d => `<div class="due-row${d.date <= soonISO ? ' soon' : ''}">
+        <div class="dues-list">${shown.map(d => `<div class="due-row${d.date <= soonISO ? ' soon' : ''}">
           <span class="due-date">${FT.fmtDate(d.date)}</span>
           <span class="due-name">${d.isTask ? '☑️ ' : d.transfer ? '🔀 ' : ''}${esc(d.name)}</span>
           <span class="due-amt">${d.isTask ? '<span class="pill">task</span>' : fmt(d.amt)}</span></div>`).join('')}</div>
+        ${dues.items.length > DUES_CAP ? `<button type="button" class="dues-more" data-act="toggle-dues"
+          aria-expanded="${duesExpanded}">${duesExpanded ? 'Show less' : `Show all ${dues.items.length} dues`}</button>` : ''}
       </div>`;
     }
     return flow + duesHtml + anomaliesHTML(key);
@@ -3711,6 +3732,14 @@ const DASH = (() => {
       renderFY();
     });
     document.getElementById('screen-month').addEventListener('click', e => {
+      const more = e.target.closest('[data-act="toggle-dues"]');
+      if (more) {
+        e.stopPropagation();
+        duesExpanded = !duesExpanded;
+        MON.renderMonth();
+        if (!duesExpanded) document.querySelector('.dues-more')?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
       const btn = e.target.closest('[data-act="dismiss-anomaly"]');
       if (!btn) return;
       e.stopPropagation();
