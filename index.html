@@ -152,6 +152,12 @@ h3 { font-size: 1.02rem; }
   width: 10px; height: 10px; border-radius: 50%;
   background: var(--muted); opacity: .55; flex: 0 0 auto;
 }
+.app-owner {
+  color: var(--muted); font-size: .85rem; font-weight: 700;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.app-owner::before { content: '· '; }
+@media (max-width: 480px) { .app-owner { display: none !important; } } /* keep the mobile header tight */
 .icon-btn {
   min-width: 44px; min-height: 44px; border-radius: var(--radius-sm);
   display: grid; place-items: center; font-size: 19px; color: var(--muted);
@@ -326,6 +332,7 @@ form.form-grid .form-actions {
 }
 .field.checkbox label { display: flex; align-items: center; gap: .55rem; color: var(--text); font-size: .95rem; min-height: 44px; cursor: pointer; }
 .field.checkbox input { width: 20px; height: 20px; accent-color: var(--accent); }
+.field.checkbox.is-disabled label { opacity: .5; cursor: not-allowed; }
 .field .hint { font-size: .75rem; color: var(--muted); margin-top: .3rem; font-weight: 400; }
 
 .day-chips { display: flex; gap: .35rem; flex-wrap: wrap; }
@@ -791,13 +798,21 @@ details.setup ol { padding-left: 1.3rem; line-height: 1.9; }
   }
   #monthHead #monthBadge, #monthHead .tip-icon { flex: 0 0 auto; }
   .act-btn { flex: 0 0 auto; min-width: 44px; padding: .55rem .45rem; gap: .25rem; }
-  /* Report stays icon-only; Close month keeps its (shortened) label */
-  .act-btn[data-act="open-report"] .btn-label { display: none; }
+  /* secondary actions collapse to their icon; primary ones keep a short label */
+  .act-btn.icon-only .btn-label { display: none; }
+  /* every screen head is one row: title truncates, actions stay compact */
+  .screen-head { flex-wrap: nowrap; gap: .5rem; }
+  .screen-head h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .screen-head > .btn, .screen-head > select { flex: 0 0 auto; }
+  #fyPicker { max-width: 122px; }
+  /* filter row: search on its own line, then the two dropdowns 50/50 */
+  .toolbar { gap: .5rem; }
+  .toolbar input[type="search"] { flex: 1 1 100%; }
+  .toolbar select { flex: 1 1 calc(50% - 1rem); min-width: 0; }
   /* slightly tighter chrome so content isn't squeezed into a narrow column */
   main { padding-left: .7rem; padding-right: .7rem; }
   .card { padding: .85rem .8rem; }
   .table-wrap { margin: 0 -.8rem; padding: 0 .8rem; }
-  .screen-head { gap: .5rem; }
   /* money-flow legend: exactly two per line, headline chips on their own row */
   .flow-legend { gap: .45rem .5rem; }
   /* basis leaves slack, grow fills the row - immune to sub-pixel rounding */
@@ -969,6 +984,7 @@ body.no-tooltips .tip-icon { display: none; }
   <div class="app-title">
     <div class="app-logo">₹</div>
     <h1>Finance Tracker</h1>
+    <span class="app-owner" id="appOwner" hidden></span>
     <span class="sync-dot" id="syncDot" title="Local only - Google Sheets sync arrives in Phase 5"></span>
   </div>
   <nav class="top-nav" id="topNav" aria-label="Primary">
@@ -1001,7 +1017,7 @@ body.no-tooltips .tip-icon { display: none; }
         </div>
       </div>
       <span id="monthBadge"></span>
-      <button class="btn secondary act-btn" data-act="open-report" title="Print-friendly report - save as PDF"
+      <button class="btn secondary act-btn icon-only" data-act="open-report" title="Print-friendly report - save as PDF"
         aria-label="Report"><span aria-hidden="true">📄</span><span class="btn-label">Report</span></button>
       <button class="btn act-btn" id="closeMonthBtn" data-act="close-month" aria-label="Close month" hidden><span aria-hidden="true">✓</span><span class="btn-label"><span class="lbl-full">Close month</span><span class="lbl-short">Close</span></span></button>
       <button type="button" class="tip-icon" data-tip="closeMonth" id="closeMonthTip" aria-label="Help" hidden>ⓘ</button>
@@ -1027,9 +1043,11 @@ body.no-tooltips .tip-icon { display: none; }
   <!-- ============ FY ============ -->
   <section class="screen" id="screen-fy">
     <div class="screen-head">
-      <h2>Financial Year</h2>
-      <button class="btn secondary" data-act="fy-image" title="Shareable summary card - copy as image">📸 Summary</button>
-      <button class="btn secondary" data-act="open-report" title="Print-friendly report - save as PDF">📄 Report</button>
+      <h2><span class="lbl-full">Financial Year</span><span class="lbl-short">FY</span></h2>
+      <button class="btn secondary act-btn icon-only" data-act="fy-image" title="Shareable summary card - copy as image"
+        aria-label="Summary card"><span aria-hidden="true">📸</span><span class="btn-label">Summary</span></button>
+      <button class="btn secondary act-btn icon-only" data-act="open-report" title="Print-friendly report - save as PDF"
+        aria-label="Report"><span aria-hidden="true">📄</span><span class="btn-label">Report</span></button>
       <select id="fyPicker" style="min-height:44px;padding:.4rem .6rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);font-weight:700"></select>
     </div>
     <div id="fyContent"></div>
@@ -1039,8 +1057,9 @@ body.no-tooltips .tip-icon { display: none; }
   <section class="screen" id="screen-registry">
     <div class="screen-head">
       <h2>Registry</h2>
-      <button class="btn secondary" data-act="open-emergency" title="Print-ready family reference sheet">🆘 Emergency sheet</button>
-      <button class="btn" data-act="add-inst">＋ Add instrument</button>
+      <button class="btn secondary act-btn icon-only" data-act="open-emergency" title="Print-ready family reference sheet"
+        aria-label="Emergency sheet"><span aria-hidden="true">🆘</span><span class="btn-label">Emergency sheet</span></button>
+      <button class="btn act-btn" data-act="add-inst" aria-label="Add instrument"><span aria-hidden="true">＋</span><span class="btn-label"><span class="lbl-full">Add instrument</span><span class="lbl-short">Add</span></span></button>
     </div>
     <div class="toolbar">
       <input type="search" id="regSearch" placeholder="Search name, ref no., institution, nominee…">
@@ -1136,6 +1155,10 @@ body.no-tooltips .tip-icon { display: none; }
     <div class="card">
       <h3>👤 Profile &amp; Targets</h3>
       <div class="form-grid">
+        <div class="field span2"><label>Your name <button type="button" class="tip-icon" data-tip="ownerName" aria-label="Help">ⓘ</button></label>
+          <input type="text" id="pf_ownerName" placeholder="e.g. Manan" autocomplete="name"></div>
+        <div class="field span2 checkbox" id="fw_showOwner"><label>
+          <input type="checkbox" id="pf_showOwnerName"> Show my name <button type="button" class="tip-icon" data-tip="showOwnerName" aria-label="Help">ⓘ</button></label></div>
         <div class="field"><label>Monthly salary - default (₹) <button type="button" class="tip-icon" data-tip="salaryDefault" aria-label="Help">ⓘ</button></label>
           <input type="number" id="pf_salaryDefault" inputmode="numeric" min="0" placeholder="e.g. 85000"></div>
         <div class="field"><label>Salary credit day (1–31) <button type="button" class="tip-icon" data-tip="salaryCreditDay" aria-label="Help">ⓘ</button></label>
@@ -1293,6 +1316,7 @@ const FT = (() => {
   const PURGE_DAYS = 30;
 
   const CONFIG_DEFAULTS = {
+    ownerName: '', showOwnerName: 'Y',
     salaryDefault: '', salaryCreditDay: '', annualIncome: '',
     investRateTargetPct: '', emergencyFundTarget: '',
     limit80C: 150000, limit80CCD1B: 50000, limit80D_SELF: 25000, limit80D_PARENTS: 25000,
@@ -1450,6 +1474,14 @@ const FT = (() => {
     return purged;
   }
 
+  /* ---------- owner identity (optional; blank/hidden = omit everywhere) ----------
+     The toggle is applied here so every consumer - header, onboarding, reports,
+     summary PNG, filenames - falls back automatically. The name itself is kept. */
+  const ownerName = () => getConfig('showOwnerName') === 'N'
+    ? '' : String(getConfig('ownerName') || '').trim();
+  const ownerSlug = () => ownerName().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
   /* ---------- FY helpers (Apr–Mar) ---------- */
   function fyMonthKey(date) { // Date → 'YYYY-MM'
     const d = date || new Date();
@@ -1468,7 +1500,7 @@ const FT = (() => {
     getConfig, setConfig,
     activeRows, findRow, addRow, updateRow,
     softDelete, restoreRow, deletedRows, purgeDeleted,
-    fyMonthKey, fyLabel,
+    fyMonthKey, fyLabel, ownerName, ownerSlug,
     commit, setMutationHandler
   };
 })();
@@ -1527,6 +1559,8 @@ const TIP = (() => {
     /* settings */
     syncUrl: 'The /exec URL of your own Apps Script web app. Setup steps live under Settings → Data.',
     autoSync: 'Pushes changes 4s after you make them and pulls on open. Off = sync only via the Sync now button.',
+    ownerName: 'Optional. Appears on the PDF report, the family emergency sheet, the FY summary image and backup filenames. Leave blank to omit it everywhere.',
+    showOwnerName: 'Hide your name from reports and the app header - useful when sharing your screen or a printout.',
     salaryDefault: 'Pre-fills each month’s salary row. Changing it updates pending/future months only - confirmed history stays.',
     salaryCreditDay: 'Day your salary usually lands - sets the date on auto-created salary rows.',
     annualIncome: 'Used only for the life-cover rule of thumb (10×) on the FY screen.',
@@ -1694,7 +1728,16 @@ const ui = (() => {
     const metaTheme = document.querySelector('meta[name="theme-color"]');
     metaTheme.content = getComputedStyle(document.body).getPropertyValue('--surface').trim() || '#ffffff';
     TIP.applyPref();
+    renderOwner();
     renderAppearanceControls();
+  }
+
+  function renderOwner() { // header identity line - only when a name is set
+    const el = document.getElementById('appOwner');
+    if (!el) return;
+    const name = FT.ownerName();
+    el.textContent = name;
+    el.hidden = !name;
   }
 
   function renderAppearanceControls() {
@@ -1778,7 +1821,7 @@ const ui = (() => {
     showScreen(last);
   }
 
-  return { init, toast, showScreen, applyAppearance, openModal, closeModal, confirm: confirmDlg };
+  return { init, toast, showScreen, applyAppearance, openModal, closeModal, confirm: confirmDlg, renderOwner };
 })();
 
 /* ============================================================
@@ -3042,11 +3085,21 @@ const MON = (() => {
   /* ---------- settings: profile & targets ---------- */
   const PROFILE_KEYS = ['salaryDefault', 'salaryCreditDay', 'annualIncome',
     'investRateTargetPct', 'emergencyFundTarget', 'currentLiquidSavings'];
+  const PROFILE_TEXT_KEYS = ['ownerName'];
   function fillProfile() {
-    PROFILE_KEYS.forEach(k => {
+    PROFILE_KEYS.concat(PROFILE_TEXT_KEYS).forEach(k => {
       const el = document.getElementById('pf_' + k);
       if (el) el.value = FT.getConfig(k) ?? '';
     });
+    syncOwnerToggle();
+  }
+  function syncOwnerToggle() { // nothing to show without a name -> disable
+    const cb = document.getElementById('pf_showOwnerName');
+    if (!cb) return;
+    const hasName = !!String(FT.getConfig('ownerName') || '').trim();
+    cb.checked = FT.getConfig('showOwnerName') !== 'N';
+    cb.disabled = !hasName;
+    cb.closest('.field').classList.toggle('is-disabled', !hasName);
   }
 
   /* ---------- events & init ---------- */
@@ -3137,6 +3190,23 @@ const MON = (() => {
         if (k === 'salaryDefault' && v !== '') refreshPendingSalaries(v);
         ui.toast('Saved');
       });
+    });
+    PROFILE_TEXT_KEYS.forEach(k => {
+      const el = document.getElementById('pf_' + k);
+      if (el) el.addEventListener('change', () => {
+        FT.setConfig(k, el.value.trim());
+        syncOwnerToggle();
+        ui.renderOwner();
+        renderMonth(); // onboarding greeting picks it up
+        ui.toast('Saved');
+      });
+    });
+    const showCb = document.getElementById('pf_showOwnerName');
+    if (showCb) showCb.addEventListener('change', () => {
+      FT.setConfig('showOwnerName', showCb.checked ? 'Y' : 'N');
+      ui.renderOwner();
+      renderMonth();
+      ui.toast(showCb.checked ? 'Name shown' : 'Name hidden');
     });
   }
 
@@ -4445,8 +4515,12 @@ const POL = (() => {
     }, null, 1);
     const a = document.createElement('a');
     const d = new Date();
+    const slug = FT.ownerSlug();
+    const dmy = `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
     a.href = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
-    a.download = `finance-tracker-backup-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
+    a.download = slug
+      ? `${slug}-finance-backup-${dmy}.json`
+      : `finance-tracker-backup-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
@@ -4525,7 +4599,8 @@ const POL = (() => {
     // forced backup BEFORE the confirm input exists
     const s = FT.state();
     const d = new Date();
-    const fname = `finance-backup-${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}.json`;
+    const slug = FT.ownerSlug();
+    const fname = `${slug ? slug + '-' : ''}finance-backup-${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}.json`;
     const payload = JSON.stringify({
       app: 'finance-tracker', version: 1, exportedAt: FT.nowISO(),
       banks: s.banks, instruments: s.instruments, monthlyLog: s.monthlyLog,
@@ -4605,7 +4680,8 @@ const POL = (() => {
       { done: FT.activeRows('monthlyLog').some(l => l.type === 'Salary' && l.status === 'Confirmed'), label: "Enter this month's salary", btn: 'Settings →', screen: 'settings' }
     ];
     if (steps.every(s => s.done)) { el.innerHTML = ''; return; }
-    el.innerHTML = `<div class="card"><h3>🚀 Get set up</h3>
+    const owner = FT.ownerName();
+    el.innerHTML = `<div class="card"><h3>🚀 ${owner ? 'Welcome, ' + esc(owner) : 'Get set up'}</h3>
       ${steps.map(s => `<div class="onboard-row${s.done ? ' done' : ''}">
         <span class="ob-check">${s.done ? '✓' : '○'}</span>
         <span class="ob-label">${s.label}</span>
@@ -4673,7 +4749,8 @@ const POL = (() => {
     x.fillStyle = col('--on-accent'); x.font = font(32);
     x.fillText(`₹  ${label}`, 40, 52);
     x.font = font(15);
-    x.fillText('Finance Tracker - year at a glance', 40, 78);
+    const ownerLine = FT.ownerName(); // canvas text - no HTML escaping needed
+    x.fillText(ownerLine ? `${ownerLine} · Finance Tracker` : 'Finance Tracker - year at a glance', 40, 78);
     let y = 132;
     x.fillStyle = col('--muted'); x.font = font(15); x.fillText('TOTAL EARNED', 40, y);
     x.fillStyle = col('--text'); x.font = font(42);
@@ -4962,7 +5039,10 @@ const REP = (() => {
     const denom = Math.max(tot.totalIn, segSum) || 1;
 
     /* 1 - cover */
-    let h = `<div class="r-section"><h1>Finance Report - ${esc(scopeLabel())}</h1>
+    const owner = FT.ownerName();
+    let h = `<div class="r-section"><h1>${owner
+        ? `${esc(owner)} - ${esc(scopeLabel())} financial report`
+        : `Finance Report - ${esc(scopeLabel())}`}</h1>
       <div class="r-sub">Generated ${FT.fmtDateTimeIST()} IST · confirmed entries only · Finance Tracker</div>
       <div class="r-strip">
         <div class="r-box"><div class="k">Total in</div><div class="v">${fmt(tot.totalIn)}</div></div>
@@ -5165,7 +5245,12 @@ const REP = (() => {
       if (l.type === 'OtherIncome' && l.subCategory === 'Lent Returned') rec[k].back += Number(l.actualAmount) || 0;
     });
     const recList = Object.values(rec).map(r => ({ ...r, due: r.lent - r.back })).filter(r => r.due > 0);
-    return `<div class="r-section"><h1>Family emergency reference</h1>
+    const owner = FT.ownerName();
+    const today = FT.fmtDateTimeIST().split(' ')[0];
+    return `<div class="r-section"><h1>${owner
+        ? `${esc(owner)}'s financial records - for family use`
+        : 'Family emergency reference'}</h1>
+      ${owner ? `<div class="r-sub">Prepared by ${esc(owner)} · generated ${today}</div>` : ''}
       <div class="r-sub">Generated ${FT.fmtDateTimeIST()} IST · print and keep with important papers · everything needed to find, claim or continue each account</div></div>
       <div><h2>Instruments &amp; policies</h2>
       <table class="r-table"><thead><tr><th>Name</th><th>Category</th><th>Institution</th><th>Reference no.</th>
