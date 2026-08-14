@@ -415,9 +415,17 @@ table.reg tr.archived td { opacity: .6; }
 .icon-act:hover, .icon-act:focus-visible { background: var(--surface2); color: var(--accent-strong); }
 .icon-act svg { display: block; }
 
+/* full-width two-up segmented control; never wraps, ≥44px at every width */
+.reg-tabs { display: flex; width: 100%; flex-wrap: nowrap; margin-bottom: .9rem; }
+.reg-tabs button {
+  flex: 1 1 50%; min-width: 0; min-height: 44px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ast-summary { display: flex; flex-wrap: wrap; gap: .45rem .9rem; font-size: .85rem; margin-bottom: .9rem; }
+.ast-summary b { font-size: 1.02rem; }
 .inst-cards { display: none; }
 @media (max-width: 900px) { /* below ~900px the table gives way to cards - no h-scroll ever */
-  #regTableCard { display: none; }
+  #regTableCard, #astTableCard { display: none; }
   .inst-cards { display: grid; gap: .75rem; }
 }
 .inst-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .9rem 1rem; box-shadow: var(--shadow); }
@@ -1059,22 +1067,43 @@ body.no-tooltips .tip-icon { display: none; }
       <h2>Registry</h2>
       <button class="btn secondary act-btn icon-only" data-act="open-emergency" title="Print-ready family reference sheet"
         aria-label="Emergency sheet"><span aria-hidden="true">🆘</span><span class="btn-label">Emergency sheet</span></button>
-      <button class="btn act-btn" data-act="add-inst" aria-label="Add instrument"><span aria-hidden="true">＋</span><span class="btn-label"><span class="lbl-full">Add instrument</span><span class="lbl-short">Add</span></span></button>
+      <button class="btn act-btn" data-act="add-inst" id="regAddInst" aria-label="Add instrument"><span aria-hidden="true">＋</span><span class="btn-label"><span class="lbl-full">Add instrument</span><span class="lbl-short">Add</span></span></button>
+      <button class="btn act-btn" data-act="add-asset" id="regAddAsset" aria-label="Add asset" hidden><span aria-hidden="true">＋</span><span class="btn-label"><span class="lbl-full">Add asset</span><span class="lbl-short">Add</span></span></button>
     </div>
-    <div class="toolbar">
-      <input type="search" id="regSearch" placeholder="Search name, ref no., institution, nominee…">
-      <select id="regBucket">
-        <option value="">All buckets</option>
-        <option>Invested</option><option>Protection</option><option>Loan</option>
-        <option>Saved</option><option>Spent</option><option>Transfer</option>
-      </select>
-      <select id="regStatus">
-        <option value="Active">Active</option>
-        <option value="Archived">Archived</option>
-        <option value="">All</option>
-      </select>
+    <div class="seg reg-tabs" id="regTabs">
+      <button type="button" data-regtab="instruments" class="active">🗂️ Instruments</button>
+      <button type="button" data-regtab="assets">💎 Assets</button>
     </div>
-    <div id="regContent"></div>
+
+    <div id="regPaneInstruments">
+      <div class="toolbar">
+        <input type="search" id="regSearch" placeholder="Search name, ref no., institution, nominee…">
+        <select id="regBucket">
+          <option value="">All buckets</option>
+          <option>Invested</option><option>Protection</option><option>Loan</option>
+          <option>Saved</option><option>Spent</option><option>Transfer</option>
+        </select>
+        <select id="regStatus">
+          <option value="Active">Active</option>
+          <option value="Archived">Archived</option>
+          <option value="">All</option>
+        </select>
+      </div>
+      <div id="regContent"></div>
+    </div>
+
+    <div id="regPaneAssets" hidden>
+      <div class="toolbar">
+        <input type="search" id="astSearch" placeholder="Search name, ref no., where kept, held in…">
+        <select id="astType"><option value="">All types</option></select>
+        <select id="astStatus">
+          <option value="Active">Active</option>
+          <option value="Archived">Archived</option>
+          <option value="">All</option>
+        </select>
+      </div>
+      <div id="astContent"></div>
+    </div>
   </section>
 
   <!-- ============ TASKS ============ -->
@@ -1156,7 +1185,7 @@ body.no-tooltips .tip-icon { display: none; }
       <h3>👤 Profile &amp; Targets</h3>
       <div class="form-grid">
         <div class="field span2"><label>Your name <button type="button" class="tip-icon" data-tip="ownerName" aria-label="Help">ⓘ</button></label>
-          <input type="text" id="pf_ownerName" placeholder="e.g. Your name" autocomplete="name"></div>
+          <input type="text" id="pf_ownerName" placeholder="e.g. Youe name" autocomplete="name"></div>
         <div class="field span2 checkbox" id="fw_showOwner"><label>
           <input type="checkbox" id="pf_showOwnerName"> Show my name <button type="button" class="tip-icon" data-tip="showOwnerName" aria-label="Help">ⓘ</button></label></div>
         <div class="field"><label>Monthly salary - default (₹) <button type="button" class="tip-icon" data-tip="salaryDefault" aria-label="Help">ⓘ</button></label>
@@ -1359,7 +1388,7 @@ const FT = (() => {
 
   /* ---------- state store ---------- */
   function defaultState() {
-    return { banks: [], instruments: [], monthlyLog: [], tasks: [], config: {} };
+    return { banks: [], instruments: [], monthlyLog: [], tasks: [], assets: [], config: {} };
   }
   function loadState() {
     try {
@@ -1460,7 +1489,7 @@ const FT = (() => {
   function purgeDeleted() { // hard-remove locally after 30 days
     const cutoff = Date.now() - PURGE_DAYS * 24 * 60 * 60 * 1000;
     let purged = 0;
-    ['banks', 'instruments', 'monthlyLog', 'tasks'].forEach(name => {
+    ['banks', 'instruments', 'monthlyLog', 'tasks', 'assets'].forEach(name => {
       const coll = collection(name);
       for (let i = coll.length - 1; i >= 0; i--) {
         const r = coll[i];
@@ -1575,6 +1604,14 @@ const TIP = (() => {
     /* tasks */
     taskLink: 'Link a task to an instrument and its reference number shows on the task - handy at the bank. The Registry row gets a 📌 badge.',
     taskDue: 'Optional. Due-dated tasks appear in This Month’s upcoming dues and turn red when overdue.',
+    /* assets - reference only */
+    assetType: 'Pick a type or type your own - new ones are saved and offered next time.',
+    assetQty: 'How much of it: 45 grams, 1200 sq ft, 2 pieces. Amount and unit are stored separately.',
+    assetValue: 'What it’s worth today, typed by you - nothing is ever fetched. The "as of" date stamps itself when you change this.',
+    assetTotal: 'Sum of the current values you’ve entered for active assets. Reference only - it never affects buckets, FY totals or tax meters.',
+    heldInName: 'Whose name the asset is in - matters for claims and paperwork.',
+    whereKept: 'Where the item or its papers physically live, so family can find it.',
+    assetRef: 'Bill or receipt number, property registry/survey number, vehicle RC number.',
     bills: 'Tracked bill instruments confirmed this month - electricity, mobile, subscriptions and the like.',
     misc: 'One-off expenses you logged with + Expense - trips, repairs, purchases, lent money.',
     /* v2: rates, goals, vault, analysis */
@@ -1713,6 +1750,7 @@ const ui = (() => {
     SYNC.onShow(name);
     POL.onShow(name);
     TSK.onShow(name);
+    AST.onShow(name);
   }
 
   /* ---------- appearance ---------- */
@@ -1814,6 +1852,7 @@ const ui = (() => {
     POL.init();
     REP.init();
     TSK.init();
+    AST.init();
     FT.purgeDeleted();
     applyAppearance();
     let last = 'month';
@@ -3854,16 +3893,16 @@ const DASH = (() => {
 const SYNC = (() => {
   const QKEY = 'financeTracker.syncQueue.v1';
   const LSKEY = 'financeTracker.lastSync.v1'; // device-local, deliberately not in Config
-  const COLLS = ['banks', 'instruments', 'monthlyLog', 'tasks', 'config'];
+  const COLLS = ['banks', 'instruments', 'monthlyLog', 'tasks', 'assets', 'config'];
   const PURGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-  const APPS_SCRIPT_CODE = `// Finance Tracker Sync - v1.3 (adds Tasks tab, new instrument fields, clearAll)
+  const APPS_SCRIPT_CODE = `// Finance Tracker Sync - v1.4 (adds Assets tab; Tasks, instrument fields, clearAll)
 // Deploy: New deployment → Web app → Execute as: Me → Access: Anyone
 // ("Anyone" is required - browser fetch can't sign in to Google, and the
 //  long /exec URL is itself the secret. Keep it private.)
 // Upgrading from an older version: paste this over the old code, then
 // Deploy → Manage deployments → Edit → New version. The URL stays the same.
-const TABS = { banks: 'Banks', instruments: 'Instruments', monthlyLog: 'MonthlyLog', tasks: 'Tasks', config: 'Config' };
+const TABS = { banks: 'Banks', instruments: 'Instruments', monthlyLog: 'MonthlyLog', tasks: 'Tasks', assets: 'Assets', config: 'Config' };
 
 function ensureSheet_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -3881,6 +3920,7 @@ const HEADERS = {
   instruments: ['id','nickname','category','bucket','frequency','amount','dueDay','dueMonth','daysOfWeek','paidFromBankId','toBankId','referenceNo','institution','sumAssured','outstanding','lockinMaturityDate','taxSection','currentValue','nominee','notes','startDate','status','deletedAt','updatedAt','interestRate','rateReviewedAt','goal','documentLocation'],
   monthlyLog: ['id','fyMonth','type','instrumentId','description','subCategory','fromBankId','toBankId','expectedAmount','actualAmount','date','status','lentCounterparty','notes','deletedAt','updatedAt'],
   tasks: ['id','title','instrumentId','dueDate','status','doneAt','notes','deletedAt','updatedAt'],
+  assets: ['id','name','type','purchaseDate','heldInName','quantity','unit','purchaseCost','currentValue','valueUpdatedAt','whereKept','referenceNo','nominee','notes','status','deletedAt','updatedAt'],
   config: ['key','value','updatedAt']
 };
 
@@ -3918,13 +3958,14 @@ function json_(o) {
 
 function doGet(e) {
   const action = (e.parameter && e.parameter.action) || 'pull';
-  if (action === 'ping') return json_({ ok: true, version: '1.3' });
+  if (action === 'ping') return json_({ ok: true, version: '1.4' });
   if (action === 'pull') {
     return json_({ ok: true,
       banks: readTab_('banks'),
       instruments: readTab_('instruments'),
       monthlyLog: readTab_('monthlyLog'),
       tasks: readTab_('tasks'),
+      assets: readTab_('assets'),
       config: readTab_('config')
     });
   }
@@ -3945,7 +3986,8 @@ function doPost(e) {
     if (body.action !== 'push') return json_({ ok: false, error: 'unknown action' });
     const c = body.changes || {};
     const upserted = upsertTab_('banks', c.banks) + upsertTab_('instruments', c.instruments)
-      + upsertTab_('monthlyLog', c.monthlyLog) + upsertTab_('tasks', c.tasks) + upsertTab_('config', c.config);
+      + upsertTab_('monthlyLog', c.monthlyLog) + upsertTab_('tasks', c.tasks)
+      + upsertTab_('assets', c.assets) + upsertTab_('config', c.config);
     return json_({ ok: true, upserted: upserted });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -4015,10 +4057,12 @@ function doPost(e) {
   }
 
   /* ---------- normalization: Sheets re-types cells; undo that on pull ---------- */
-  const DATE_FIELDS = { instruments: ['startDate', 'lockinMaturityDate', 'rateReviewedAt'], monthlyLog: ['date'], tasks: ['dueDate'] };
+  const DATE_FIELDS = { instruments: ['startDate', 'lockinMaturityDate', 'rateReviewedAt'], monthlyLog: ['date'],
+    tasks: ['dueDate'], assets: ['purchaseDate', 'valueUpdatedAt'] };
   const NUM_FIELDS = {
     instruments: ['amount', 'dueDay', 'dueMonth', 'sumAssured', 'outstanding', 'currentValue', 'interestRate'],
-    monthlyLog: ['expectedAmount', 'actualAmount']
+    monthlyLog: ['expectedAmount', 'actualAmount'],
+    assets: ['quantity', 'purchaseCost', 'currentValue']
   };
   function istDate(v) { // datetime-ish anything → YYYY-MM-DD in IST
     if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
@@ -4055,7 +4099,7 @@ function doPost(e) {
   function mergePull(data) {
     const st = FT.state();
     let changed = 0;
-    ['banks', 'instruments', 'monthlyLog', 'tasks'].forEach(coll => {
+    ['banks', 'instruments', 'monthlyLog', 'tasks', 'assets'].forEach(coll => {
       (data[coll] || []).forEach(raw => {
         const r = normRow(coll, raw);
         if (!r.id) return;
@@ -4109,7 +4153,7 @@ function doPost(e) {
     const snap = {}; COLLS.forEach(c => snap[c] = [...queue[c]]);
     const st = FT.state();
     const changes = {};
-    ['banks', 'instruments', 'monthlyLog', 'tasks'].forEach(c => {
+    ['banks', 'instruments', 'monthlyLog', 'tasks', 'assets'].forEach(c => {
       changes[c] = snap[c].map(id => st[c].find(r => r.id === id)).filter(Boolean);
     });
     changes.config = snap.config
@@ -4132,7 +4176,7 @@ function doPost(e) {
 
   function enqueueAll() { // re-send everything, regardless of queue state
     const st = FT.state();
-    ['banks', 'instruments', 'monthlyLog', 'tasks'].forEach(c => st[c].forEach(r => queue[c].add(r.id)));
+    ['banks', 'instruments', 'monthlyLog', 'tasks', 'assets'].forEach(c => st[c].forEach(r => queue[c].add(r.id)));
     Object.keys(st.config).forEach(k => queue.config.add(k));
     saveQueue(); updateDot(); renderStatus();
   }
@@ -4154,7 +4198,7 @@ function doPost(e) {
     // verify: read back what the Sheet actually holds now
     try {
       const d = await api('action=pull');
-      ui.toast(`Synced ✓ - pushed ${toPush} change${toPush === 1 ? '' : 's'} · Sheet now has ${(d.banks || []).length} banks · ${(d.instruments || []).length} instruments · ${(d.monthlyLog || []).length} entries · ${(d.tasks || []).length} tasks`, 6000);
+      ui.toast(`Synced ✓ - pushed ${toPush} change${toPush === 1 ? '' : 's'} · Sheet now has ${(d.banks || []).length} banks · ${(d.instruments || []).length} instruments · ${(d.monthlyLog || []).length} entries · ${(d.tasks || []).length} tasks · ${(d.assets || []).length} assets`, 6000);
     } catch (e) { ui.toast('Synced ✓'); }
   }
   async function testConnection() {
@@ -4467,6 +4511,8 @@ const POL = (() => {
       .filter(l => hit(l.description, l.lentCounterparty, l.notes))
       .sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 8);
     const tsks = FT.activeRows('tasks').filter(t => hit(t.title, t.notes)).slice(0, 8);
+    const asts = FT.activeRows('assets')
+      .filter(a => hit(a.name, a.referenceNo, a.whereKept, a.heldInName, a.notes, a.type)).slice(0, 8);
     const row = (act, id, ico, title, sub) =>
       `<button class="sr-row" data-sr="${act}" data-id="${id}">
         <span class="sr-ico">${ico}</span>
@@ -4484,6 +4530,9 @@ const POL = (() => {
     if (tsks.length) html += '<div class="sr-group">Tasks</div>' + tsks.map(t =>
       row('task', t.id, '☑️', t.title,
         `${t.status === 'Done' ? 'done' : 'open'}${t.dueDate ? ' · due ' + FT.fmtDate(t.dueDate) : ''}${t.notes ? ' · ' + t.notes : ''}`)).join('');
+    if (asts.length) html += '<div class="sr-group">Assets</div>' + asts.map(a =>
+      row('asset', a.id, '💎', a.name,
+        [a.type, AST.qtyText(a), a.whereKept, a.referenceNo].filter(Boolean).join(' · ') || '-')).join('');
     res.innerHTML = html || `<p class="muted small" style="padding:.6rem .4rem">No matches for "${esc(q)}".</p>`;
   }
   function jump(kind, id) {
@@ -4498,6 +4547,15 @@ const POL = (() => {
     }
     if (kind === 'bank') ui.showScreen('banks');
     if (kind === 'task') ui.showScreen('tasks');
+    if (kind === 'asset') {
+      const a = FT.findRow('assets', id);
+      ui.showScreen('registry');
+      AST.showTab('assets');
+      $('astStatus').value = '';
+      $('astStatus').dispatchEvent(new Event('change'));
+      $('astSearch').value = a ? a.name : '';
+      $('astSearch').dispatchEvent(new Event('input'));
+    }
     if (kind === 'log') {
       const l = FT.findRow('monthlyLog', id);
       if (l) MON.setViewMonth(l.fyMonth);
@@ -4511,7 +4569,7 @@ const POL = (() => {
     const payload = JSON.stringify({
       app: 'finance-tracker', version: 1, exportedAt: FT.nowISO(),
       banks: s.banks, instruments: s.instruments, monthlyLog: s.monthlyLog,
-      tasks: s.tasks || [], config: s.config
+      tasks: s.tasks || [], assets: s.assets || [], config: s.config
     }, null, 1);
     const a = document.createElement('a');
     const d = new Date();
@@ -4534,7 +4592,7 @@ const POL = (() => {
       { ui.toast('Not a Finance Tracker backup'); return null; }
     const st = FT.state();
     let added = 0, updated = 0, kept = 0;
-    ['banks', 'instruments', 'monthlyLog', 'tasks'].forEach(coll => {
+    ['banks', 'instruments', 'monthlyLog', 'tasks', 'assets'].forEach(coll => {
       (data[coll] || []).forEach(r => {
         if (!r || !r.id) return;
         const local = st[coll].find(x => x.id === r.id);
@@ -4567,7 +4625,8 @@ const POL = (() => {
   function deletedAll() {
     const out = [];
     [['banks', b => b.nickname, '🏦'], ['instruments', i => i.nickname, '🗂️'],
-     ['monthlyLog', l => l.description || l.type, '📒'], ['tasks', t => t.title, '☑️']].forEach(([coll, nameFn, ico]) => {
+     ['monthlyLog', l => l.description || l.type, '📒'], ['tasks', t => t.title, '☑️'],
+     ['assets', a => a.name, '💎']].forEach(([coll, nameFn, ico]) => {
       FT.deletedRows(coll).forEach(r => {
         const left = Math.max(0, 30 - Math.floor((Date.now() - Date.parse(r.deletedAt || '')) / 864e5));
         out.push({ coll, id: r.id, ico, name: nameFn(r), when: r.deletedAt, left });
@@ -4604,7 +4663,7 @@ const POL = (() => {
     const payload = JSON.stringify({
       app: 'finance-tracker', version: 1, exportedAt: FT.nowISO(),
       banks: s.banks, instruments: s.instruments, monthlyLog: s.monthlyLog,
-      tasks: s.tasks || [], config: s.config
+      tasks: s.tasks || [], assets: s.assets || [], config: s.config
     }, null, 1);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
@@ -4656,7 +4715,7 @@ const POL = (() => {
         if (row) keep[k] = row;
       });
       localStorage.setItem('financeTracker.v1',
-        JSON.stringify({ banks: [], instruments: [], monthlyLog: [], tasks: [], config: keep }));
+        JSON.stringify({ banks: [], instruments: [], monthlyLog: [], tasks: [], assets: [], config: keep }));
       ['financeTracker.syncQueue.v1', 'financeTracker.lastSync.v1', ATT_KEY, LOCKOUT_KEY]
         .forEach(k => localStorage.removeItem(k));
       location.reload(); // fresh onboarding
@@ -5263,6 +5322,25 @@ const REP = (() => {
         <td class="notes">${esc(i.documentLocation) || '-'}</td>
         <td>${esc(bnk(i.paidFromBankId))}</td></tr>`).join('')}
       </tbody></table></div>
+      ${(() => {
+        const assets = FT.activeRows('assets').filter(a => a.status === 'Active')
+          .sort((a, b) => String(a.type).localeCompare(String(b.type)) || String(a.name).localeCompare(String(b.name)));
+        if (!assets.length) return '';
+        return `<div><h2>Assets</h2>
+          <table class="r-table"><thead><tr><th>Asset</th><th>Type</th><th>Purchased</th><th>Quantity</th>
+            <th class="num">Current value</th><th>Held in name of</th><th>Where kept</th><th>Nominee</th></tr></thead><tbody>
+          ${assets.map(a => `<tr>
+            <td><b>${esc(a.name)}</b>${a.referenceNo ? `<br><span style="color:#6b7280">${esc(a.referenceNo)}</span>` : ''}</td>
+            <td>${esc(a.type) || '-'}</td>
+            <td>${a.purchaseDate ? FT.fmtDate(a.purchaseDate) : '-'}</td>
+            <td>${esc(AST.qtyText(a)) || '-'}</td>
+            <td class="num">${a.currentValue !== '' && a.currentValue != null ? fmt(a.currentValue) : '-'}</td>
+            <td>${esc(a.heldInName) || '-'}</td>
+            <td class="notes">${esc(a.whereKept) || '-'}</td>
+            <td>${esc(a.nominee) || '<b style="color:#b91c1c">none!</b>'}</td></tr>`).join('')}
+          </tbody></table>
+          <div class="r-note">Values are self-recorded and may be out of date - they are a reference, not a valuation.</div></div>`;
+      })()}
       <div class="r-section"><h2>Bank accounts</h2>
       <table class="r-table"><thead><tr><th>Account</th><th>Bank</th><th>Number</th><th>Type</th><th>Nominee</th></tr></thead><tbody>
       ${banks.map(b => `<tr><td><b>${esc(b.nickname)}</b></td><td>${esc(b.bankName)}</td>
@@ -5322,6 +5400,275 @@ const REP = (() => {
   }
 
   return { init, open, close, buildDoc, scopeKeys: () => scopeKeys(), scopeLabel: () => scopeLabel() };
+})();
+
+/* ============================================================
+   AST - §12.6 Assets registry (reference only, zero money flow)
+   Creates no MonthlyLog rows and never touches buckets/FY/tax.
+   ============================================================ */
+const AST = (() => {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const $ = id => document.getElementById(id);
+  const val = id => $(id).value;
+  const fmt = FT.fmtINR;
+
+  const BUILTIN_TYPES = ['Gold (jewellery)', 'Gold (coins/bars)', 'Silver', 'Diamond/Jewellery',
+    'Property', 'Land', 'Vehicle', 'Cash', 'Bonds', 'Physical shares', 'Other'];
+  const HELD_IN = ['Self', 'Wife', 'Son', 'Daughter', 'Joint', 'Mummy', 'Pappa', 'Brother', 'Cousin'];
+  const UNITS = ['grams', 'tola', 'kg', 'sq ft', 'sq yd', 'gunta', 'acre', 'pieces', 'carat'];
+
+  /* custom types live in Config, like custom categories */
+  function customTypes() {
+    try {
+      const v = JSON.parse(FT.getConfig('customAssetTypes') || '[]');
+      return Array.isArray(v) ? v : [];
+    } catch (e) { return []; }
+  }
+  const allTypes = () => BUILTIN_TYPES.concat(customTypes().filter(t => !BUILTIN_TYPES.includes(t)));
+  function rememberType(t) {
+    if (!t || BUILTIN_TYPES.includes(t)) return;
+    const cust = customTypes();
+    if (cust.some(x => x.toLowerCase() === t.toLowerCase())) return;
+    cust.push(t);
+    FT.setConfig('customAssetTypes', JSON.stringify(cust));
+  }
+
+  const qtyText = a => [a.quantity !== '' && a.quantity != null ? a.quantity : '', a.unit || '']
+    .filter(x => x !== '').join(' ');
+  const activeAssets = () => FT.activeRows('assets').filter(a => a.status === 'Active');
+
+  /* ---------- filters + rendering ---------- */
+  const filters = { q: '', type: '', status: 'Active' };
+
+  function renderTypeFilter() {
+    const sel = $('astType');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All types</option>'
+      + allTypes().map(t => `<option${t === cur ? ' selected' : ''}>${esc(t)}</option>`).join('');
+  }
+
+  function render() {
+    const el = $('astContent');
+    if (!el) return;
+    renderTypeFilter();
+    const all = FT.activeRows('assets');
+    if (!all.length) {
+      el.innerHTML = `<div class="card empty-state"><div class="es-icon">💎</div>
+        <h3>No assets yet</h3>
+        <p>A reference list of what you own outright - gold, silver, property, vehicles, cash at home. Values are yours to type in; nothing is ever fetched, and none of this touches your monthly buckets or FY totals.</p>
+        <p style="margin-top:1rem"><button class="btn" data-act="add-asset">＋ Add your first asset</button></p></div>`;
+      return;
+    }
+    const q = filters.q.toLowerCase();
+    const rows = all.filter(a => {
+      if (filters.status && a.status !== filters.status) return false;
+      if (filters.type && a.type !== filters.type) return false;
+      if (q) {
+        const hay = [a.name, a.type, a.referenceNo, a.whereKept, a.heldInName, a.nominee, a.notes]
+          .join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      // Cash pins to the top - but only within results the filters already allow
+      const ca = a.type === 'Cash', cb = b.type === 'Cash';
+      if (ca !== cb) return ca ? -1 : 1;
+      // then newest purchase first; undated rows sink to the bottom of their group
+      const da = a.purchaseDate || '', db = b.purchaseDate || '';
+      if (da !== db) return (da && db) ? db.localeCompare(da) : (da ? -1 : 1);
+      return String(a.name).localeCompare(String(b.name));
+    });
+
+    // summary strip counts only what's visible-as-active, per spec
+    const act = all.filter(a => a.status === 'Active');
+    const total = act.reduce((s, a) => s + (Number(a.currentValue) || 0), 0);
+    const noValue = act.filter(a => a.currentValue === '' || a.currentValue == null).length;
+    const summary = `<div class="ast-summary">
+      <span>Total recorded value <b>${fmt(total)}</b> ${TIP.icon('assetTotal')}</span>
+      <span class="muted">${act.length} active asset${act.length === 1 ? '' : 's'}</span>
+      ${noValue ? `<span class="muted">${noValue} ${noValue === 1 ? 'has' : 'have'} no current value</span>` : ''}
+    </div>`;
+
+    if (!rows.length) {
+      el.innerHTML = summary + `<div class="card empty-state"><div class="es-icon">🔍</div>
+        <h3>No matches</h3><p>Nothing matches the current search/filters.</p></div>`;
+      return;
+    }
+
+    const editBtn = a => `<button type="button" class="icon-act" data-act="edit-asset" data-id="${a.id}"
+      title="Edit" aria-label="Edit ${esc(a.name)}">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>`;
+
+    const table = `<div class="card" id="astTableCard"><div class="table-wrap"><table class="reg mi-table">
+      <thead><tr><th>Asset</th><th>Purchased</th><th>Quantity</th><th class="num">Current value</th>
+        <th>Held in name of</th><th>Where kept</th><th></th></tr></thead><tbody>
+      ${rows.map(a => `<tr class="${a.status === 'Archived' ? 'archived' : ''}">
+        <td><span class="reg-name" title="${esc(a.name)}">${esc(a.name)}</span>
+          ${a.type ? `<span class="pill">${esc(a.type)}</span>` : ''}
+          ${a.nominee ? ` <button type="button" class="tip-icon" data-tip-text="Nominee: ${esc(a.nominee)}" aria-label="Nominee">ⓘ</button>` : ''}
+          ${a.referenceNo ? `<div class="reg-sub">${esc(a.referenceNo)}</div>` : ''}</td>
+        <td class="nowrap">${a.purchaseDate ? FT.fmtDate(a.purchaseDate) : '-'}</td>
+        <td class="nowrap">${esc(qtyText(a)) || '-'}</td>
+        <td class="num nowrap">${a.currentValue !== '' && a.currentValue != null ? fmt(a.currentValue) : '-'}
+          ${a.valueUpdatedAt ? `<div class="reg-sub">as of ${FT.fmtDate(a.valueUpdatedAt)}</div>` : ''}</td>
+        <td>${esc(a.heldInName) || '-'}</td>
+        <td>${esc(a.whereKept) || '-'}</td>
+        <td class="nowrap">${editBtn(a)}</td>
+      </tr>`).join('')}
+      </tbody></table></div></div>`;
+
+    const cards = `<div class="inst-cards">${rows.map(a => {
+      const kv = (k, v) => v ? `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>` : '';
+      return `<div class="inst-card${a.status === 'Archived' ? ' archived' : ''}">
+        <div class="ic-head"><strong>${esc(a.name)}</strong>${a.type ? `<span class="pill">${esc(a.type)}</span>` : ''}
+          ${a.status === 'Archived' ? '<span class="pill">Archived</span>' : ''}</div>
+        ${kv('Purchased', a.purchaseDate ? FT.fmtDate(a.purchaseDate) : '')}
+        ${kv('Quantity', esc(qtyText(a)))}
+        ${kv('Current value', a.currentValue !== '' && a.currentValue != null ? fmt(a.currentValue) : '')}
+        ${kv('Value as of', a.valueUpdatedAt ? FT.fmtDate(a.valueUpdatedAt) : '')}
+        ${kv('Purchase cost', a.purchaseCost !== '' && a.purchaseCost != null ? fmt(a.purchaseCost) : '')}
+        ${kv('Held in name of', esc(a.heldInName))}
+        ${kv('Where kept', esc(a.whereKept))}
+        ${kv('Reference', esc(a.referenceNo))}
+        ${kv('Nominee', esc(a.nominee))}
+        ${kv('Notes', esc(a.notes))}
+        <div class="row-actions">${editBtn(a)}</div>
+      </div>`;
+    }).join('')}</div>`;
+
+    el.innerHTML = summary + table + cards;
+  }
+
+  /* ---------- add / edit ---------- */
+  function assetForm(existing) {
+    const a = existing || { status: 'Active' };
+    const dl = (id, list) => `<datalist id="${id}">${list.map(x => `<option value="${esc(x)}">`).join('')}</datalist>`;
+    ui.openModal(existing ? 'Edit asset' : 'Add asset', `
+      <form id="astForm" class="form-grid" novalidate>
+        <div class="field"><label>Name *</label>
+          <input type="text" id="af_name" value="${esc(a.name || '')}" placeholder="Gold chain / Plot in Surat"></div>
+        <div class="field"><label>Type ${TIP.icon('assetType')}</label>
+          <input type="text" id="af_type" list="af_typeList" value="${esc(a.type || '')}" placeholder="Pick or type your own" autocomplete="off">
+          ${dl('af_typeList', allTypes())}</div>
+        <div class="field"><label>Purchase date</label>
+          <input type="date" id="af_purchaseDate" value="${esc(a.purchaseDate || '')}"></div>
+        <div class="field"><label>Held in name of ${TIP.icon('heldInName')}</label>
+          <input type="text" id="af_heldInName" list="af_heldList" value="${esc(a.heldInName || '')}" placeholder="Self / Wife / …" autocomplete="off">
+          ${dl('af_heldList', HELD_IN)}</div>
+        <div class="field"><label>Quantity ${TIP.icon('assetQty')}</label>
+          <input type="number" id="af_quantity" inputmode="decimal" step="any" min="0" value="${a.quantity ?? ''}"></div>
+        <div class="field"><label>Unit</label>
+          <input type="text" id="af_unit" list="af_unitList" value="${esc(a.unit || '')}" placeholder="grams / sq ft / …" autocomplete="off">
+          ${dl('af_unitList', UNITS)}</div>
+        <div class="field"><label>Purchase cost (₹)</label>
+          <input type="number" id="af_purchaseCost" inputmode="numeric" min="0" value="${a.purchaseCost ?? ''}"></div>
+        <div class="field"><label>Current value (₹) ${TIP.icon('assetValue')}</label>
+          <input type="number" id="af_currentValue" inputmode="numeric" min="0" value="${a.currentValue ?? ''}">
+          ${a.valueUpdatedAt ? `<div class="hint">Last updated ${FT.fmtDate(a.valueUpdatedAt)}</div>` : ''}</div>
+        <div class="field"><label>Where kept ${TIP.icon('whereKept')}</label>
+          <input type="text" id="af_whereKept" value="${esc(a.whereKept || '')}" placeholder="SBI locker Nehru Nagar / home safe"></div>
+        <div class="field"><label>Reference no. ${TIP.icon('assetRef')}</label>
+          <input type="text" id="af_referenceNo" value="${esc(a.referenceNo || '')}" placeholder="Bill / registry / survey / RC no."></div>
+        <div class="field"><label>Nominee</label>
+          <input type="text" id="af_nominee" value="${esc(a.nominee || '')}"></div>
+        <div class="field"><label>Notes</label>
+          <input type="text" id="af_notes" value="${esc(a.notes || '')}"></div>
+        <div class="form-actions span2">
+          ${existing ? `<span style="display:flex;gap:.45rem;margin-right:auto">
+            <button type="button" class="mini-btn" data-fact="arch-asset">${existing.status === 'Archived' ? '♻ Restore' : '📦 Archive'}</button>
+            <button type="button" class="mini-btn danger" data-fact="del-asset">🗑 Delete</button>
+          </span>` : ''}
+          <button type="button" class="btn secondary" data-close>Cancel</button>
+          <button type="submit" class="btn">Save</button>
+        </div>
+      </form>`);
+
+    const archBtn = document.querySelector('#astForm [data-fact="arch-asset"]');
+    if (archBtn) archBtn.addEventListener('click', () => {
+      const toArchived = existing.status !== 'Archived';
+      FT.updateRow('assets', existing.id, { status: toArchived ? 'Archived' : 'Active' });
+      ui.closeModal(); render();
+      ui.toast(toArchived ? 'Archived' : 'Restored');
+    });
+    const delBtn = document.querySelector('#astForm [data-fact="del-asset"]');
+    if (delBtn) delBtn.addEventListener('click', async () => {
+      if (!await ui.confirm('Delete this asset? You can restore it from Recently deleted for 30 days.',
+        { okLabel: 'Delete', danger: true })) return;
+      FT.softDelete('assets', existing.id);
+      ui.closeModal(); render();
+      ui.toast('Asset deleted');
+    });
+
+    $('astForm').addEventListener('submit', e => {
+      e.preventDefault();
+      const num = id => { const v = val(id); return v === '' ? '' : Number(v); };
+      const row = {
+        name: val('af_name').trim(),
+        type: val('af_type').trim(),
+        purchaseDate: val('af_purchaseDate'),
+        heldInName: val('af_heldInName').trim(),
+        quantity: num('af_quantity'),
+        unit: val('af_unit').trim(),
+        purchaseCost: num('af_purchaseCost'),
+        currentValue: num('af_currentValue'),
+        whereKept: val('af_whereKept').trim(),
+        referenceNo: val('af_referenceNo').trim(),
+        nominee: val('af_nominee').trim(),
+        notes: val('af_notes').trim()
+      };
+      if (!row.name) return ui.toast('Name is required');
+      // valueUpdatedAt auto-stamps whenever currentValue changes
+      const prevVal = existing ? existing.currentValue : '';
+      const changed = String(row.currentValue) !== String(prevVal ?? '');
+      row.valueUpdatedAt = row.currentValue === '' ? ''
+        : (changed ? new Date().toISOString().slice(0, 10) : (existing && existing.valueUpdatedAt) || '');
+      rememberType(row.type);
+      if (existing) FT.updateRow('assets', existing.id, row);
+      else FT.addRow('assets', Object.assign({ id: FT.uid('ast'), status: 'Active' }, row));
+      ui.closeModal(); render();
+      ui.toast(existing ? 'Asset updated' : 'Asset added');
+    });
+  }
+
+  /* ---------- tabs + wiring ---------- */
+  function showTab(which) {
+    const isAssets = which === 'assets';
+    $('regPaneInstruments').hidden = isAssets;
+    $('regPaneAssets').hidden = !isAssets;
+    $('regAddInst').hidden = isAssets;
+    $('regAddAsset').hidden = !isAssets;
+    document.querySelectorAll('#regTabs button').forEach(b =>
+      b.classList.toggle('active', b.dataset.regtab === which));
+    try { sessionStorage.setItem('ft.regTab', which); } catch (e) {}
+    if (isAssets) render(); else REG.renderRegistry();
+  }
+
+  function onShow(name) {
+    if (name !== 'registry') return;
+    let tab = 'instruments';
+    try { tab = sessionStorage.getItem('ft.regTab') || 'instruments'; } catch (e) {}
+    showTab(tab);
+  }
+
+  function init() {
+    $('regTabs').addEventListener('click', e => {
+      const b = e.target.closest('[data-regtab]');
+      if (b) showTab(b.dataset.regtab);
+    });
+    $('screen-registry').addEventListener('click', e => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      if (btn.dataset.act === 'add-asset') assetForm();
+      if (btn.dataset.act === 'edit-asset') assetForm(FT.findRow('assets', btn.dataset.id));
+    });
+    $('astSearch').addEventListener('input', e => { filters.q = e.target.value.trim(); render(); });
+    $('astType').addEventListener('change', e => { filters.type = e.target.value; render(); });
+    $('astStatus').addEventListener('change', e => { filters.status = e.target.value; render(); });
+  }
+
+  return { init, onShow, render, showTab, activeAssets, qtyText, allTypes };
 })();
 
 /* ============================================================
