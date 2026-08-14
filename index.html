@@ -744,6 +744,54 @@ details.setup ol { padding-left: 1.3rem; line-height: 1.9; }
 }
 
 /* ============================================================
+   MOBILE POLISH - dues list, month header, truncation, spacing
+   ============================================================ */
+/* every due is listed; long lists scroll inside the card (no "+N more") */
+.dues-list { max-height: 55vh; overflow-y: auto; }
+.due-row .due-amt { flex: 0 0 auto; }
+/* long names never push amounts off-screen */
+.log-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-amt { flex: 0 0 auto; }
+.sr-row .sr-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.onboard-row .ob-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* responsive label pairs (month picker, month badge) */
+.lbl-short { display: none; }
+
+@media (max-width: 640px) {
+  /* sticky modal footers clear the iOS home indicator */
+  form.form-grid .form-actions,
+  .modal-body .modal-pinned { padding-bottom: calc(.7rem + env(safe-area-inset-bottom)); }
+  /* full-screen sheet: short forms still pin Save/Cancel to the bottom edge
+     (single-column already, so flex is visually identical to the grid) */
+  .modal-body { flex: 1 1 auto; }
+  .modal-body > form.form-grid { display: flex; flex-direction: column; min-height: 100%; }
+  .modal-body > form.form-grid > .form-actions { margin-top: auto; }
+}
+
+@media (max-width: 480px) {
+  .lbl-full { display: none; }
+  .lbl-short { display: inline; }
+  /* month header: one row - picker left, compact icon actions right */
+  #monthHead { flex-wrap: nowrap; gap: .4rem; }
+  #monthHead .month-nav { gap: .1rem; }
+  #monthHead #monthLabelBtn { padding: .4rem .55rem; white-space: nowrap; }
+  #monthHead #monthBadge, #monthHead .tip-icon { flex: 0 0 auto; }
+  .act-btn { flex: 0 0 auto; min-width: 44px; padding: .55rem .7rem; }
+  .act-btn .btn-label { display: none; }
+  /* slightly tighter chrome so content isn't squeezed into a narrow column */
+  main { padding-left: .7rem; padding-right: .7rem; }
+  .card { padding: .85rem .8rem; }
+  .table-wrap { margin: 0 -.8rem; padding: 0 .8rem; }
+  .screen-head { gap: .5rem; }
+  /* money-flow legend: exactly two per line, headline chips on their own row */
+  .flow-legend { gap: .45rem .5rem; }
+  /* basis leaves slack, grow fills the row - immune to sub-pixel rounding */
+  .flow-legend > span { flex: 1 1 calc(50% - 1rem); min-width: 0; }
+  .flow-legend > .leftover-pill,
+  .flow-legend > .overspent-chip { flex: 0 0 100%; }
+}
+
+/* ============================================================
    PHASE 6 §3.12 - PDF Report (print-first, fixed white palette)
    ============================================================ */
 #reportView {
@@ -922,7 +970,7 @@ body.no-tooltips .tip-icon { display: none; }
 <main>
   <!-- ============ THIS MONTH ============ -->
   <section class="screen" id="screen-month">
-    <div class="screen-head">
+    <div class="screen-head" id="monthHead">
       <div class="month-nav">
         <button class="icon-btn" data-act="prev-month" title="Previous month">‹</button>
         <button id="monthLabelBtn" title="Pick a month"></button>
@@ -938,8 +986,9 @@ body.no-tooltips .tip-icon { display: none; }
         </div>
       </div>
       <span id="monthBadge"></span>
-      <button class="btn secondary" data-act="open-report" title="Print-friendly report - save as PDF">📄 Report</button>
-      <button class="btn" id="closeMonthBtn" data-act="close-month" hidden>✓ Close month</button>
+      <button class="btn secondary act-btn" data-act="open-report" title="Print-friendly report - save as PDF"
+        aria-label="Report"><span aria-hidden="true">📄</span><span class="btn-label">Report</span></button>
+      <button class="btn act-btn" id="closeMonthBtn" data-act="close-month" aria-label="Close month" hidden><span aria-hidden="true">✓</span><span class="btn-label">Close month</span></button>
       <button type="button" class="tip-icon" data-tip="closeMonth" id="closeMonthTip" aria-label="Help" hidden>ⓘ</button>
     </div>
     <div id="onboardArea"></div>
@@ -2665,7 +2714,10 @@ const MON = (() => {
     }).join('');
   }
   function buildPicker() {
-    document.getElementById('monthLabelBtn').textContent = monthLabel(viewMonth);
+    const [ly, lm] = viewMonth.split('-').map(Number);
+    document.getElementById('monthLabelBtn').innerHTML =
+      `<span class="lbl-full">${monthLabel(viewMonth)}</span>`
+      + `<span class="lbl-short">${MONTH_NAMES[lm - 1].slice(0, 3)} ${ly}</span>`;
     const pop = document.getElementById('monthPop');
     if (!pop.hidden) { popYear = Number(viewMonth.slice(0, 4)); renderPop(); }
   }
@@ -2732,8 +2784,11 @@ const MON = (() => {
 
     // badge + close button
     const badge = document.getElementById('monthBadge');
-    badge.innerHTML = closed ? '<span class="pill ok">✓ Closed</span>'
-      : pending.length ? `<span class="pill warn">${pending.length} pending</span>` : '';
+    badge.innerHTML = closed
+      ? '<span class="pill ok"><span class="lbl-full">✓ Closed</span><span class="lbl-short">✓</span></span>'
+      : pending.length
+        ? `<span class="pill warn"><span class="lbl-full">${pending.length} pending</span><span class="lbl-short">${pending.length}</span></span>`
+        : '';
     document.getElementById('closeMonthBtn').hidden = closed || !logs.length || pending.length > 0;
     document.getElementById('closeMonthTip').hidden = document.getElementById('closeMonthBtn').hidden;
 
@@ -3018,6 +3073,9 @@ const MON = (() => {
       if (act === 'next-month') { viewMonth = addMonths(viewMonth, 1); renderMonth(); }
       if (act === 'close-month') {
         if (pendingCount(viewMonth)) return ui.toast('Confirm or delete pending items first');
+        // icon-only on mobile, so confirm before locking (reopening is one tap)
+        if (!await ui.confirm(`Close ${monthLabel(viewMonth)}? Entries lock until you reopen it.`,
+          { okLabel: '✓ Close month' })) return;
         setClosed(viewMonth, true); renderMonth(); ui.toast(monthLabel(viewMonth) + ' closed ✓');
       }
       if (act === 'reopen-month') { setClosed(viewMonth, false); renderMonth(); ui.toast('Month reopened'); }
@@ -3142,7 +3200,7 @@ const DASH = (() => {
            title="Log the leftover as Saved - amount pre-filled, adjust if some was cash spending">💾 Save the rest</button>` : '';
     flow += `<div class="flow-legend">${parts.map(s =>
       `<span${s.cls === 'Other' && s.v > 0 ? ' class="leftover-pill"' : ''}><span class="dot seg-${s.cls}"></span>${s.label} <b>${fmt(s.v)}</b> <span class="muted">${pct(s.v)}</span>${TIP.icon(s.tip)}${s.cls === 'Other' ? saveRestBtn : ''}</span>`).join('')}
-      ${b.other < 0 ? `<span><span class="dot" style="background:var(--red)"></span><span class="overspent">Overspent from savings ${fmt(-b.other)}</span> ${TIP.icon('overspent')}</span>` : ''}</div>`;
+      ${b.other < 0 ? `<span class="overspent-chip"><span class="dot" style="background:var(--red)"></span><span class="overspent">Overspent from savings ${fmt(-b.other)}</span> ${TIP.icon('overspent')}</span>` : ''}</div>`;
     if (b.saved === 0 && b.totalIn > 0)
       flow += `<div class="flow-spentline">💡 Money not spent stays in your banks - log a "Saved" entry if you want it counted.</div>`;
     flow += `</div>`;
@@ -3152,13 +3210,13 @@ const DASH = (() => {
     let duesHtml = '';
     if (dues.items.length) {
       const soonISO = addDaysISO(dues.aISO, 7);
-      const shown = dues.items.slice(0, 8);
-      duesHtml = `<div class="card"><h3>📆 Upcoming dues - next 30 days</h3>
-        ${shown.map(d => `<div class="due-row${d.date <= soonISO ? ' soon' : ''}">
+      // no truncation - every due is listed; the container scrolls if the list is long
+      duesHtml = `<div class="card"><h3>📆 Upcoming dues - next 30 days
+        <span class="muted small">(${dues.items.length})</span></h3>
+        <div class="dues-list">${dues.items.map(d => `<div class="due-row${d.date <= soonISO ? ' soon' : ''}">
           <span class="due-date">${FT.fmtDate(d.date)}</span>
           <span class="due-name">${d.isTask ? '☑️ ' : d.transfer ? '🔀 ' : ''}${esc(d.name)}</span>
-          <span class="due-amt">${d.isTask ? '<span class="pill">task</span>' : fmt(d.amt)}</span></div>`).join('')}
-        ${dues.items.length > shown.length ? `<p class="muted small" style="margin-top:.4rem">+ ${dues.items.length - shown.length} more</p>` : ''}
+          <span class="due-amt">${d.isTask ? '<span class="pill">task</span>' : fmt(d.amt)}</span></div>`).join('')}</div>
       </div>`;
     }
     return flow + duesHtml + anomaliesHTML(key);
