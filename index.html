@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Finance Tracker">
 <title>Finance Tracker</title>
+<link rel="manifest" href="manifest.json">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230E9F6E'/%3E%3Ctext x='32' y='44' font-size='36' font-weight='900' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
 <style>
 /* ============================================================
@@ -937,6 +938,20 @@ body.no-tooltips .tip-icon { display: none; }
 #confirmYes.danger-btn { background: var(--red); color: #fff; }
 #confirmYes.danger-btn:hover { background: var(--red); opacity: .88; }
 
+/* PWA update prompt - dismissible, never forces a reload mid-entry */
+.sw-update {
+  position: fixed; z-index: 200; left: 50%; transform: translateX(-50%);
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: .5rem;
+  max-width: calc(100vw - 1.6rem); padding: .5rem .5rem .5rem .9rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--shadow);
+  font-size: .85rem; font-weight: 700;
+}
+.sw-update[hidden] { display: none; }
+.sw-update .icon-btn { min-width: 36px; min-height: 36px; font-size: 15px; }
+@media (min-width: 769px) { .sw-update { bottom: 24px; } }
+
 .tip-bubble {
   position: fixed; z-index: 400; max-width: 280px;
   background: var(--surface); color: var(--text);
@@ -1224,6 +1239,7 @@ body.no-tooltips .tip-icon { display: none; }
     <div class="card">
       <h3>💾 Data</h3>
       <p class="muted small" id="storageInfo"></p>
+      <p class="muted small" id="appVersionInfo"></p>
       <div class="row-actions" style="margin:.7rem 0">
         <button class="mini-btn" data-act="export-json">⬇ Export JSON</button>
         <button class="mini-btn" data-act="import-json">⬆ Import JSON</button>
@@ -1332,6 +1348,12 @@ body.no-tooltips .tip-icon { display: none; }
   </div>
 </div>
 
+<div class="sw-update" id="swUpdate" hidden role="status">
+  <span>New version available - reload to update.</span>
+  <button type="button" class="mini-btn" id="swReload">Reload</button>
+  <button type="button" class="icon-btn" id="swDismiss" title="Dismiss" aria-label="Dismiss">✕</button>
+</div>
+
 <div class="tip-bubble" id="tipBubble" role="tooltip" hidden></div>
 <div class="toast" id="toast"></div>
 
@@ -1340,6 +1362,9 @@ body.no-tooltips .tip-icon { display: none; }
 /* ============================================================
    FT - Finance Tracker core (Phase 1: state store & helpers)
    ============================================================ */
+/* keep in step with CACHE in sw.js - shown in Settings → Data */
+const APP_VERSION = 'ft-v1';
+
 const FT = (() => {
   const STORAGE_KEY = 'financeTracker.v1';
   const PURGE_DAYS = 30;
@@ -1853,6 +1878,7 @@ const ui = (() => {
     REP.init();
     TSK.init();
     AST.init();
+    PWA.init();
     FT.purgeDeleted();
     applyAppearance();
     let last = 'month';
@@ -2121,7 +2147,7 @@ const REG = (() => {
     ui.openModal(existing ? 'Edit instrument' : 'Add instrument', `
       <form id="instForm" class="form-grid" novalidate>
         <div class="field"><label>Nickname *</label>
-          <input type="text" id="if_nickname" value="${esc(i.nickname || '')}" placeholder="Nippon India Liquid Fund SIP"></div>
+          <input type="text" id="if_nickname" value="${esc(i.nickname || '')}" placeholder="Parag Parikh Flexi Cap SIP"></div>
         <div class="field"><label>Category * ${TIP.icon('bucket')}</label>
           <select id="if_category">${categoryOptions(i.category)}</select>
           <div class="hint" id="if_bucketNote"></div>
@@ -2481,6 +2507,7 @@ const REG = (() => {
     document.getElementById('storageInfo').textContent =
       `Stored locally in this browser · ${s.banks.length} banks · ${s.instruments.length} instruments · ` +
       `${s.monthlyLog.length} log rows · ${(bytes / 1024).toFixed(1)} KB used.`;
+    if (typeof PWA !== 'undefined') PWA.versionLine();
   }
 
   function categoryForm(existingName) {
@@ -5403,6 +5430,54 @@ const REP = (() => {
 })();
 
 /* ============================================================
+   PWA - §12.7 offline shell + update prompt (no libraries)
+   ============================================================ */
+const PWA = (() => {
+  let swState = 'not registered';
+
+  function showUpdateBar() {
+    const bar = document.getElementById('swUpdate');
+    if (bar) bar.hidden = false;
+  }
+
+  function versionLine() {
+    const el = document.getElementById('appVersionInfo');
+    if (!el) return;
+    el.textContent = `App version ${APP_VERSION} · offline cache: ${swState}`
+      + (location.protocol === 'https:' ? '' : ' (service workers need https)');
+  }
+
+  function init() {
+    document.getElementById('swReload').addEventListener('click', () => location.reload());
+    document.getElementById('swDismiss').addEventListener('click', () => {
+      document.getElementById('swUpdate').hidden = true; // never forced; comes back next load
+    });
+
+    // https only - on file:// registration throws, and localhost dev needs no shell cache
+    if (location.protocol !== 'https:' || !('serviceWorker' in navigator)) {
+      swState = location.protocol === 'https:' ? 'unsupported' : 'off';
+      versionLine();
+      return;
+    }
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      swState = reg.active ? 'active' : 'installing';
+      versionLine();
+      reg.addEventListener('updatefound', () => {
+        const incoming = reg.installing;
+        if (!incoming) return;
+        incoming.addEventListener('statechange', () => {
+          // controller present => this is an update, not the first install
+          if (incoming.state === 'installed' && navigator.serviceWorker.controller) showUpdateBar();
+        });
+      });
+    }).catch(() => { swState = 'registration failed'; versionLine(); });
+    versionLine();
+  }
+
+  return { init, versionLine, showUpdateBar, state: () => swState };
+})();
+
+/* ============================================================
    AST - §12.6 Assets registry (reference only, zero money flow)
    Creates no MonthlyLog rows and never touches buckets/FY/tax.
    ============================================================ */
@@ -5574,7 +5649,7 @@ const AST = (() => {
     ui.openModal(existing ? 'Edit asset' : 'Add asset', `
       <form id="astForm" class="form-grid" novalidate>
         <div class="field"><label>Name *</label>
-          <input type="text" id="af_name" value="${esc(a.name || '')}" placeholder="Gold chain / Silver coin"></div>
+          <input type="text" id="af_name" value="${esc(a.name || '')}" placeholder="Gold chain / Plot in Surat"></div>
         <div class="field"><label>Type ${TIP.icon('assetType')}</label>
           <input type="text" id="af_type" list="af_typeList" value="${esc(a.type || '')}" placeholder="Pick or type your own" autocomplete="off">
           ${dl('af_typeList', allTypes())}</div>
