@@ -32,6 +32,7 @@
   --amber: #d97706;
   --brown: #795548;
   --pink: #db2777;
+  --slate: #94a3b8;
   --red-soft: rgba(220, 38, 38, .12);
   --green-soft: rgba(22, 163, 74, .12);
   --amber-soft: rgba(217, 119, 6, .14);
@@ -45,6 +46,7 @@
   --amber: #fbbf24;
   --brown: #9c7a63;
   --pink: #f472b6;
+  --slate: #4d7ba3;
   --red-soft: rgba(248, 113, 113, .16);
   --green-soft: rgba(74, 222, 128, .14);
   --amber-soft: rgba(251, 191, 36, .16);
@@ -516,20 +518,22 @@ table.reg tr.archived td { opacity: .6; }
 .flow-total { font-size: 1.05rem; margin-bottom: .6rem; }
 .flow-total b { font-size: 1.35rem; }
 .split-bar {
-  display: flex; height: 20px; border-radius: 999px; overflow: hidden;
-  background: var(--surface2); margin: .5rem 0 .75rem;
+  display: flex; height: 20px; margin: .5rem 0 .75rem;
+  background: var(--surface2);
+  border-radius: 999px; overflow: hidden; isolation: isolate;
 }
-.split-bar span { display: block; height: 100%; min-width: 3px; }
+/* flex-grow with 0 basis: the segments always consume exactly 100% of the track */
+.split-bar span { display: block; height: 100%; min-width: 2px; }
 .seg-Invested { background: var(--green); }
 .seg-Protection { background: var(--accent); }
 .seg-Loan { background: var(--red); }
 .seg-Saved { background: var(--amber); }
 .seg-Spent { background: var(--muted); }
-/* Spent parts: brown bills (only hue no theme accent uses), pink misc; Other = pale "unfilled" */
+/* Spent parts: brown bills (only hue no theme accent uses), pink misc, slate leftover */
 .seg-Bills { background: var(--brown); }
 .seg-Misc { background: var(--pink); }
-.seg-Other { background: var(--border); box-shadow: inset 0 0 0 1px var(--muted); }
-.flow-legend { display: flex; flex-wrap: wrap; gap: .35rem .95rem; font-size: .82rem; }
+.seg-Other { background: var(--slate); }
+.flow-legend { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .95rem; font-size: .82rem; }
 .flow-legend .leftover-pill {
   background: var(--accent-soft); color: var(--accent-strong);
   border-radius: 999px; padding: .3rem .65rem;
@@ -537,6 +541,9 @@ table.reg tr.archived td { opacity: .6; }
 }
 .flow-legend .leftover-pill .muted { color: var(--accent-strong); opacity: .7; }
 .flow-legend .leftover-pill .tip-icon { color: var(--accent-strong); opacity: .7; }
+/* the card's headline figure after "Total in" - amount large, % stays small */
+.flow-legend .leftover-pill b { font-size: 1.22rem; line-height: 1.1; }
+.flow-legend .leftover-pill .dot { width: 11px; height: 11px; }
 .flow-legend .dot, .flow-spentline .dot {
   display: inline-block; width: 10px; height: 10px; border-radius: 50%;
   margin-right: .32rem; vertical-align: baseline;
@@ -1482,7 +1489,7 @@ const TIP = (() => {
     debtPayoff: 'Amortization math from outstanding, EMI and rate: months left, interest remaining, and what a prepayment would save.',
     anomalies: 'Simple arithmetic checks on your own history - spending spikes, skipped SIPs, late premiums, stale rates. Dismiss any note; nothing blocks.',
     insights: 'Rules-based arithmetic over your confirmed months - which months leaked the most leftover, how your investment rate tracked, and what to tighten. A mirror, never advice.',
-    leftoverCol: 'Total in minus every logged outflow (invested, protection, loans, bills, misc). Includes what you declared as Saved plus anything untracked. Negative = overspent.',
+    leftoverCol: 'Total in minus everything allocated: invested, protection, loans, saved, bills, misc. The untracked remainder - each row sums back to Total In exactly. Negative = overspent.',
     investPct: 'Invested ÷ total in for that month. Your target lives in Settings → Profile.'
   };
 
@@ -3334,9 +3341,10 @@ const DASH = (() => {
         const b = monthBuckets(k);
         return {
           k, m: MSHORT[Number(k.slice(5, 7)) - 1],
-          totalIn: b.totalIn, invested: b.invested, bills: b.bills, misc: b.misc,
-          otherSpend: b.protection + b.loans,
-          leftover: b.totalIn - b.invested - b.protection - b.loans - b.bills - b.misc,
+          totalIn: b.totalIn, invested: b.invested, protection: b.protection, loans: b.loans,
+          bills: b.bills, misc: b.misc, saved: b.saved,
+          // leftover = totalIn − invested − protection − loans − saved − bills − misc (≡ b.other)
+          leftover: b.other,
           investPct: b.totalIn > 0 ? b.invested / b.totalIn * 100 : 0
         };
       });
@@ -3381,7 +3389,8 @@ const DASH = (() => {
     });
     const cols = [
       ['month', 'Month', ''], ['totalIn', 'Total In', 'num'], ['invested', 'Invested', 'num'],
-      ['bills', 'Bills', 'num'], ['misc', 'Misc', 'num'], ['otherSpend', 'Other spending', 'num'],
+      ['protection', 'Protection', 'num'], ['loans', 'Loans', 'num'],
+      ['bills', 'Bills', 'num'], ['misc', 'Misc', 'num'], ['saved', 'Saved', 'num'],
       ['leftover', 'Leftover', 'num'], ['investPct', 'Invest %', 'num']
     ];
     const arrow = c => miSort.col === c ? (miSort.dir === 1 ? ' ▲' : ' ▼') : '';
@@ -3392,16 +3401,18 @@ const DASH = (() => {
         <button type="button" data-mi-rank="leftover" class="${miRank === 'leftover' ? 'active' : ''}">Rank by Leftover</button>
         <button type="button" data-mi-rank="invest" class="${miRank === 'invest' ? 'active' : ''}">Rank by Invest %</button>
       </div>
-      <div class="chart-wrap"><table class="reg mi-table" style="min-width:680px">
+      <div class="chart-wrap"><table class="reg mi-table" style="min-width:780px">
         <thead><tr>${cols.map(([id, lbl, cl]) =>
           `<th class="${cl}" data-mi-sort="${id}" style="cursor:pointer" title="Tap to sort">${lbl}${tipFor(id)}${arrow(id)}</th>`).join('')}</tr></thead>
         <tbody>${sorted.map(r => `<tr>
           <td>${r.m}${r.k === bestK ? ' 🏆' : ''}${r.k === worstK ? ' 🔻' : ''}</td>
           <td class="num nowrap">${fmt(r.totalIn)}</td>
           <td class="num nowrap">${fmt(r.invested)}</td>
+          <td class="num nowrap">${fmt(r.protection)}</td>
+          <td class="num nowrap">${fmt(r.loans)}</td>
           <td class="num nowrap">${fmt(r.bills)}</td>
           <td class="num nowrap">${fmt(r.misc)}</td>
-          <td class="num nowrap">${fmt(r.otherSpend)}</td>
+          <td class="num nowrap">${fmt(r.saved)}</td>
           <td class="num nowrap"${r.leftover < 0 ? ' style="color:var(--red);font-weight:700"' : ''}>${r.leftover < 0 ? '−' + fmt(-r.leftover) : fmt(r.leftover)}</td>
           <td class="num nowrap">${Math.round(r.investPct)}%</td>
         </tr>`).join('')}</tbody></table></div>
@@ -4872,7 +4883,7 @@ const REP = (() => {
       </div></div>`;
 
     /* 2 - money flow */
-    const R_SPENT = { Bills: '#6d4c41', Misc: '#db2777', Other: '#d1d5db' };
+    const R_SPENT = { Bills: '#6d4c41', Misc: '#db2777', Other: '#94a3b8' };
     const barSegs = segs.slice(0, 4).map(([n, v]) => [n, v, SEG_COLORS[n]]).concat([
       ['Spent → Bills', tot.bills, R_SPENT.Bills],
       ['Spent → Misc', tot.misc, R_SPENT.Misc],
@@ -4920,13 +4931,15 @@ const REP = (() => {
         }
         h += `<div class="r-section"><h2>Month insights</h2>
           <table class="r-table"><thead><tr><th>Month</th><th class="num">Total In</th><th class="num">Invested</th>
-            <th class="num">Bills</th><th class="num">Misc</th><th class="num">Other spending</th>
+            <th class="num">Protection</th><th class="num">Loans</th>
+            <th class="num">Bills</th><th class="num">Misc</th><th class="num">Saved</th>
             <th class="num">Leftover</th><th class="num">Invest %</th></tr></thead><tbody>
           ${mi.rows.map(r => `<tr>
             <td>${r.m}${r.k === bestK ? ' 🏆' : ''}${r.k === worstK ? ' 🔻' : ''}</td>
             <td class="num">${fmt(r.totalIn)}</td><td class="num">${fmt(r.invested)}</td>
+            <td class="num">${fmt(r.protection)}</td><td class="num">${fmt(r.loans)}</td>
             <td class="num">${fmt(r.bills)}</td><td class="num">${fmt(r.misc)}</td>
-            <td class="num">${fmt(r.otherSpend)}</td>
+            <td class="num">${fmt(r.saved)}</td>
             <td class="num"${r.leftover < 0 ? ' style="color:#b91c1c;font-weight:900"' : ''}>${r.leftover < 0 ? '−' + fmt(-r.leftover) : fmt(r.leftover)}</td>
             <td class="num">${Math.round(r.investPct)}%</td></tr>`).join('')}
           </tbody></table>
