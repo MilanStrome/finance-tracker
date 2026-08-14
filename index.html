@@ -5574,7 +5574,7 @@ const AST = (() => {
     ui.openModal(existing ? 'Edit asset' : 'Add asset', `
       <form id="astForm" class="form-grid" novalidate>
         <div class="field"><label>Name *</label>
-          <input type="text" id="af_name" value="${esc(a.name || '')}" placeholder="Gold chain / Plot in Surat"></div>
+          <input type="text" id="af_name" value="${esc(a.name || '')}" placeholder="Gold chain / Silver coin"></div>
         <div class="field"><label>Type ${TIP.icon('assetType')}</label>
           <input type="text" id="af_type" list="af_typeList" value="${esc(a.type || '')}" placeholder="Pick or type your own" autocomplete="off">
           ${dl('af_typeList', allTypes())}</div>
