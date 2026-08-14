@@ -1185,7 +1185,7 @@ body.no-tooltips .tip-icon { display: none; }
       <h3>👤 Profile &amp; Targets</h3>
       <div class="form-grid">
         <div class="field span2"><label>Your name <button type="button" class="tip-icon" data-tip="ownerName" aria-label="Help">ⓘ</button></label>
-          <input type="text" id="pf_ownerName" placeholder="e.g. Youe name" autocomplete="name"></div>
+          <input type="text" id="pf_ownerName" placeholder="e.g. Your name" autocomplete="name"></div>
         <div class="field span2 checkbox" id="fw_showOwner"><label>
           <input type="checkbox" id="pf_showOwnerName"> Show my name <button type="button" class="tip-icon" data-tip="showOwnerName" aria-label="Help">ⓘ</button></label></div>
         <div class="field"><label>Monthly salary - default (₹) <button type="button" class="tip-icon" data-tip="salaryDefault" aria-label="Help">ⓘ</button></label>
@@ -1606,7 +1606,7 @@ const TIP = (() => {
     taskDue: 'Optional. Due-dated tasks appear in This Month’s upcoming dues and turn red when overdue.',
     /* assets - reference only */
     assetType: 'Pick a type or type your own - new ones are saved and offered next time.',
-    assetQty: 'How much of it: 45 grams, 1200 sq ft, 2 pieces. Amount and unit are stored separately.',
+    assetQty: 'How much of it, in your own words - "45 grams", "1200 sq ft", "2 pieces".',
     assetValue: 'What it’s worth today, typed by you - nothing is ever fetched. The "as of" date stamps itself when you change this.',
     assetTotal: 'Sum of the current values you’ve entered for active assets. Reference only - it never affects buckets, FY totals or tax meters.',
     heldInName: 'Whose name the asset is in - matters for claims and paperwork.',
@@ -3920,7 +3920,7 @@ const HEADERS = {
   instruments: ['id','nickname','category','bucket','frequency','amount','dueDay','dueMonth','daysOfWeek','paidFromBankId','toBankId','referenceNo','institution','sumAssured','outstanding','lockinMaturityDate','taxSection','currentValue','nominee','notes','startDate','status','deletedAt','updatedAt','interestRate','rateReviewedAt','goal','documentLocation'],
   monthlyLog: ['id','fyMonth','type','instrumentId','description','subCategory','fromBankId','toBankId','expectedAmount','actualAmount','date','status','lentCounterparty','notes','deletedAt','updatedAt'],
   tasks: ['id','title','instrumentId','dueDate','status','doneAt','notes','deletedAt','updatedAt'],
-  assets: ['id','name','type','purchaseDate','heldInName','quantity','unit','purchaseCost','currentValue','valueUpdatedAt','whereKept','referenceNo','nominee','notes','status','deletedAt','updatedAt'],
+  assets: ['id','name','type','purchaseDate','heldInName','quantity','purchaseCost','currentValue','valueUpdatedAt','whereKept','referenceNo','nominee','notes','status','deletedAt','updatedAt'],
   config: ['key','value','updatedAt']
 };
 
@@ -4062,7 +4062,7 @@ function doPost(e) {
   const NUM_FIELDS = {
     instruments: ['amount', 'dueDay', 'dueMonth', 'sumAssured', 'outstanding', 'currentValue', 'interestRate'],
     monthlyLog: ['expectedAmount', 'actualAmount'],
-    assets: ['quantity', 'purchaseCost', 'currentValue']
+    assets: ['purchaseCost', 'currentValue'] // quantity is free text now ("45 grams")
   };
   function istDate(v) { // datetime-ish anything → YYYY-MM-DD in IST
     if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
@@ -5413,10 +5413,25 @@ const AST = (() => {
   const val = id => $(id).value;
   const fmt = FT.fmtINR;
 
-  const BUILTIN_TYPES = ['Gold (jewellery)', 'Gold (coins/bars)', 'Silver', 'Diamond/Jewellery',
-    'Property', 'Land', 'Vehicle', 'Cash', 'Bonds', 'Physical shares', 'Other'];
+  // Cash leads the list - it's the most-added type and cash rows pin to the top of the list
+  const BUILTIN_TYPES = ['Cash', 'Gold', 'Silver', 'Diamond', 'Property', 'Land', 'Vehicle',
+    'Bonds', 'Physical shares', 'Other'];
+  // retired type names -> current ones, so old records never show an orphaned type
+  const TYPE_MIGRATIONS = {
+    'Gold (jewellery)': 'Gold', 'Gold (coins/bars)': 'Gold', 'Diamond/Jewellery': 'Diamond'
+  };
+  function migrateTypes() { // idempotent; also runs after a sync pull brings old rows back
+    let n = 0;
+    FT.activeRows('assets').forEach(a => {
+      const to = TYPE_MIGRATIONS[a.type];
+      if (to) { FT.updateRow('assets', a.id, { type: to }); n++; }
+    });
+    const cust = customTypes();
+    const cleaned = cust.filter(t => !TYPE_MIGRATIONS[t] && !BUILTIN_TYPES.includes(t));
+    if (cleaned.length !== cust.length) FT.setConfig('customAssetTypes', JSON.stringify(cleaned));
+    return n;
+  }
   const HELD_IN = ['Self', 'Wife', 'Son', 'Daughter', 'Joint', 'Mummy', 'Pappa', 'Brother', 'Cousin'];
-  const UNITS = ['grams', 'tola', 'kg', 'sq ft', 'sq yd', 'gunta', 'acre', 'pieces', 'carat'];
 
   /* custom types live in Config, like custom categories */
   function customTypes() {
@@ -5434,8 +5449,19 @@ const AST = (() => {
     FT.setConfig('customAssetTypes', JSON.stringify(cust));
   }
 
-  const qtyText = a => [a.quantity !== '' && a.quantity != null ? a.quantity : '', a.unit || '']
-    .filter(x => x !== '').join(' ');
+  const qtyText = a => String(a.quantity ?? '').trim();
+  // legacy rows stored quantity + unit separately - join them once, then stop using unit
+  function migrateQuantity() {
+    let n = 0;
+    FT.activeRows('assets').forEach(a => {
+      const u = String(a.unit ?? '').trim();
+      if (!u) return;
+      const joined = [String(a.quantity ?? '').trim(), u].filter(Boolean).join(' ');
+      FT.updateRow('assets', a.id, { quantity: joined, unit: '' });
+      n++;
+    });
+    return n;
+  }
   const activeAssets = () => FT.activeRows('assets').filter(a => a.status === 'Active');
 
   /* ---------- filters + rendering ---------- */
@@ -5557,11 +5583,8 @@ const AST = (() => {
         <div class="field"><label>Held in name of ${TIP.icon('heldInName')}</label>
           <input type="text" id="af_heldInName" list="af_heldList" value="${esc(a.heldInName || '')}" placeholder="Self / Wife / …" autocomplete="off">
           ${dl('af_heldList', HELD_IN)}</div>
-        <div class="field"><label>Quantity ${TIP.icon('assetQty')}</label>
-          <input type="number" id="af_quantity" inputmode="decimal" step="any" min="0" value="${a.quantity ?? ''}"></div>
-        <div class="field"><label>Unit</label>
-          <input type="text" id="af_unit" list="af_unitList" value="${esc(a.unit || '')}" placeholder="grams / sq ft / …" autocomplete="off">
-          ${dl('af_unitList', UNITS)}</div>
+        <div class="field"><label>Quantity * ${TIP.icon('assetQty')}</label>
+          <input type="text" id="af_quantity" value="${esc(a.quantity ?? '')}" placeholder="45 grams / 500 sq ft / 2 pieces"></div>
         <div class="field"><label>Purchase cost (₹)</label>
           <input type="number" id="af_purchaseCost" inputmode="numeric" min="0" value="${a.purchaseCost ?? ''}"></div>
         <div class="field"><label>Current value (₹) ${TIP.icon('assetValue')}</label>
@@ -5609,8 +5632,7 @@ const AST = (() => {
         type: val('af_type').trim(),
         purchaseDate: val('af_purchaseDate'),
         heldInName: val('af_heldInName').trim(),
-        quantity: num('af_quantity'),
-        unit: val('af_unit').trim(),
+        quantity: val('af_quantity').trim(),
         purchaseCost: num('af_purchaseCost'),
         currentValue: num('af_currentValue'),
         whereKept: val('af_whereKept').trim(),
@@ -5619,6 +5641,7 @@ const AST = (() => {
         notes: val('af_notes').trim()
       };
       if (!row.name) return ui.toast('Name is required');
+      if (!row.quantity) return ui.toast('Quantity is required');
       // valueUpdatedAt auto-stamps whenever currentValue changes
       const prevVal = existing ? existing.currentValue : '';
       const changed = String(row.currentValue) !== String(prevVal ?? '');
@@ -5647,12 +5670,14 @@ const AST = (() => {
 
   function onShow(name) {
     if (name !== 'registry') return;
+    migrateTypes(); migrateQuantity();
     let tab = 'instruments';
     try { tab = sessionStorage.getItem('ft.regTab') || 'instruments'; } catch (e) {}
     showTab(tab);
   }
 
   function init() {
+    migrateTypes(); migrateQuantity(); // on load
     $('regTabs').addEventListener('click', e => {
       const b = e.target.closest('[data-regtab]');
       if (b) showTab(b.dataset.regtab);
@@ -5668,7 +5693,8 @@ const AST = (() => {
     $('astStatus').addEventListener('change', e => { filters.status = e.target.value; render(); });
   }
 
-  return { init, onShow, render, showTab, activeAssets, qtyText, allTypes };
+  return { init, onShow, render, showTab, activeAssets, qtyText, allTypes,
+    migrateTypes, migrateQuantity, BUILTIN_TYPES };
 })();
 
 /* ============================================================
