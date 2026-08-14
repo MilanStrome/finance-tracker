@@ -601,6 +601,8 @@ details.sched summary { cursor: pointer; font-size: .82rem; color: var(--muted);
 .donut-legend .dl-row .due-amt { margin-left: auto; font-weight: 700; }
 .chart-wrap { overflow-x: auto; }
 .chart-wrap svg { min-width: 560px; width: 100%; height: auto; }
+.mi-table th.num, .mi-table td.num { text-align: right; }
+.mi-table th { user-select: none; }
 .fy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 @media (max-width: 768px) { .fy-grid { grid-template-columns: 1fr; } }
 .fy-grid .card { margin-bottom: 0; }
@@ -1478,7 +1480,10 @@ const TIP = (() => {
     prepayVsInvest: 'Compares your loan rate with the average assumed return of your investments. Prepayment savings are guaranteed; market returns are not.',
     lockinTimeline: 'When each locked instrument frees up, with its projected value at that date (assumed rates - actuals will differ).',
     debtPayoff: 'Amortization math from outstanding, EMI and rate: months left, interest remaining, and what a prepayment would save.',
-    anomalies: 'Simple arithmetic checks on your own history - spending spikes, skipped SIPs, late premiums, stale rates. Dismiss any note; nothing blocks.'
+    anomalies: 'Simple arithmetic checks on your own history - spending spikes, skipped SIPs, late premiums, stale rates. Dismiss any note; nothing blocks.',
+    insights: 'Rules-based arithmetic over your confirmed months - which months leaked the most leftover, how your investment rate tracked, and what to tighten. A mirror, never advice.',
+    leftoverCol: 'Total in minus every logged outflow (invested, protection, loans, bills, misc). Includes what you declared as Saved plus anything untracked. Negative = overspent.',
+    investPct: 'Invested ÷ total in for that month. Your target lives in Settings → Profile.'
   };
 
   let current = null; // the icon whose bubble is open
@@ -1966,7 +1971,8 @@ const REG = (() => {
           <input type="text" id="if_nickname" value="${esc(i.nickname || '')}" placeholder="Parag Parikh Flexi Cap SIP"></div>
         <div class="field"><label>Category * ${TIP.icon('bucket')}</label>
           <select id="if_category">${categoryOptions(i.category)}</select>
-          <div class="hint" id="if_bucketNote"></div></div>
+          <div class="hint" id="if_bucketNote"></div>
+          <div class="hint">One-time expenses like trips or gifts? Use + Expense on the This Month screen instead.</div></div>
         <div class="field span2" id="fw_new" hidden>
           <div class="inline-add" style="margin-top:0">
             <input type="text" id="if_newName" placeholder="Category name (e.g. FD, Gold, Chit Fund)">
@@ -3318,6 +3324,92 @@ const DASH = (() => {
     el.innerHTML = html;
   }
 
+  /* ---------- Month Insights: per-month table + rules-based lines ---------- */
+  let miSort = { col: 'month', dir: 1 };
+  let miRank = 'leftover';
+  function miData(keys) { // computed purely from confirmed MonthlyLog rows
+    const rows = keys
+      .filter(k => FT.activeRows('monthlyLog').some(l => l.fyMonth === k && l.status === 'Confirmed'))
+      .map(k => {
+        const b = monthBuckets(k);
+        return {
+          k, m: MSHORT[Number(k.slice(5, 7)) - 1],
+          totalIn: b.totalIn, invested: b.invested, bills: b.bills, misc: b.misc,
+          otherSpend: b.protection + b.loans,
+          leftover: b.totalIn - b.invested - b.protection - b.loans - b.bills - b.misc,
+          investPct: b.totalIn > 0 ? b.invested / b.totalIn * 100 : 0
+        };
+      });
+    // insight lines - each shown only when its condition is actually true
+    const lines = [];
+    if (rows.length >= 2) {
+      const metric = miRank === 'invest' ? 'investPct' : 'leftover';
+      const best = [...rows].sort((a, b) => b[metric] - a[metric])[0];
+      lines.push(miRank === 'invest'
+        ? `Best month: ${best.m} - invested ${Math.round(best.investPct)}% of income.`
+        : `Best month: ${best.m} - leftover ${fmt(Math.round(best.leftover))}.`);
+      const over = rows.filter(r => r.leftover < 0);
+      if (over.length) lines.push(`Overspent beyond income in ${over.map(r => r.m).join(', ')} - the gap came from savings.`);
+    }
+    const miscMap = {};
+    FT.activeRows('monthlyLog')
+      .filter(l => l.status === 'Confirmed' && l.type === 'MiscExpense' && keys.includes(l.fyMonth))
+      .forEach(l => { const s = l.subCategory || 'Other'; miscMap[s] = (miscMap[s] || 0) + (Number(l.actualAmount) || 0); });
+    const topMisc = Object.entries(miscMap).sort((a, b) => b[1] - a[1])[0];
+    if (topMisc && topMisc[1] > 0) lines.push(`Biggest misc category this FY: ${esc(topMisc[0])} ${fmt(Math.round(topMisc[1]))}.`);
+    if (rows.length >= 3) {
+      const t = rows.slice(-3).map(r => r.bills + r.misc);
+      if (t[0] < t[1] && t[1] < t[2] && t[2] > 0)
+        lines.push('Logged spending (bills + misc) has risen 3 months in a row.');
+    }
+    return { rows, lines: lines.slice(0, 3) };
+  }
+  function monthInsightsHTML(keys) {
+    const { rows, lines } = miData(keys);
+    if (!rows.length) return '';
+    const metric = miRank === 'invest' ? 'investPct' : 'leftover';
+    let bestK = '', worstK = '';
+    if (rows.length >= 2) {
+      const ranked = [...rows].sort((a, b) => b[metric] - a[metric]);
+      bestK = ranked[0].k;
+      worstK = ranked[ranked.length - 1].k;
+    }
+    const sorted = [...rows].sort((a, b) => {
+      const va = miSort.col === 'month' ? a.k : a[miSort.col];
+      const vb = miSort.col === 'month' ? b.k : b[miSort.col];
+      return (va < vb ? -1 : va > vb ? 1 : 0) * miSort.dir;
+    });
+    const cols = [
+      ['month', 'Month', ''], ['totalIn', 'Total In', 'num'], ['invested', 'Invested', 'num'],
+      ['bills', 'Bills', 'num'], ['misc', 'Misc', 'num'], ['otherSpend', 'Other spending', 'num'],
+      ['leftover', 'Leftover', 'num'], ['investPct', 'Invest %', 'num']
+    ];
+    const arrow = c => miSort.col === c ? (miSort.dir === 1 ? ' ▲' : ' ▼') : '';
+    const tipFor = c => c === 'leftover' ? ' ' + TIP.icon('leftoverCol')
+      : c === 'investPct' ? ' ' + TIP.icon('investPct') : '';
+    return `<div class="card"><h3>🗓 Month insights ${TIP.icon('insights')}</h3>
+      <div class="seg" style="margin-bottom:.55rem">
+        <button type="button" data-mi-rank="leftover" class="${miRank === 'leftover' ? 'active' : ''}">Rank by Leftover</button>
+        <button type="button" data-mi-rank="invest" class="${miRank === 'invest' ? 'active' : ''}">Rank by Invest %</button>
+      </div>
+      <div class="chart-wrap"><table class="reg mi-table" style="min-width:680px">
+        <thead><tr>${cols.map(([id, lbl, cl]) =>
+          `<th class="${cl}" data-mi-sort="${id}" style="cursor:pointer" title="Tap to sort">${lbl}${tipFor(id)}${arrow(id)}</th>`).join('')}</tr></thead>
+        <tbody>${sorted.map(r => `<tr>
+          <td>${r.m}${r.k === bestK ? ' 🏆' : ''}${r.k === worstK ? ' 🔻' : ''}</td>
+          <td class="num nowrap">${fmt(r.totalIn)}</td>
+          <td class="num nowrap">${fmt(r.invested)}</td>
+          <td class="num nowrap">${fmt(r.bills)}</td>
+          <td class="num nowrap">${fmt(r.misc)}</td>
+          <td class="num nowrap">${fmt(r.otherSpend)}</td>
+          <td class="num nowrap"${r.leftover < 0 ? ' style="color:var(--red);font-weight:700"' : ''}>${r.leftover < 0 ? '−' + fmt(-r.leftover) : fmt(r.leftover)}</td>
+          <td class="num nowrap">${Math.round(r.investPct)}%</td>
+        </tr>`).join('')}</tbody></table></div>
+      ${lines.length ? `<div style="margin-top:.5rem">${lines.map(t =>
+        `<div class="flag-row"><span>💡</span><span>${t}</span></div>`).join('')}</div>` : ''}
+    </div>`;
+  }
+
   /* ---------- FY view ---------- */
   let fyYear = null;
   const fyStartOf = key => { const [y, m] = key.split('-').map(Number); return m >= 4 ? y : y - 1; };
@@ -3478,6 +3570,8 @@ const DASH = (() => {
       <div class="card"><h3>📊 Invested vs Spent - ${fyLabel(fyYear)}</h3>
         ${barChart(per.map(x => ({ m: MSHORT[Number(x.k.slice(5, 7)) - 1], invested: x.b.invested, spent: x.b.spent })))}</div>
 
+      ${monthInsightsHTML(keys)}
+
       <div class="card"><h3>🪣 Bucket totals</h3><div class="stat-grid">
         <div class="stat"><div class="st-label">Total in</div><div class="st-value">${fmt(tot.totalIn)}</div>
           <div class="st-sub">salary ${fmtCompact(tot.salary)} + other ${fmtCompact(tot.otherIncome)}</div></div>
@@ -3555,6 +3649,19 @@ const DASH = (() => {
         ((FT.getConfig('dismissedAnomalies') || '') + ',' + btn.dataset.key).split(',').filter(Boolean).join(','));
       MON.renderMonth();
     });
+    // month-insights table: tappable sort headers + rank toggle
+    document.getElementById('fyContent').addEventListener('click', e => {
+      const th = e.target.closest('[data-mi-sort]');
+      if (th) {
+        const c = th.dataset.miSort;
+        if (miSort.col === c) miSort.dir *= -1;
+        else miSort = { col: c, dir: c === 'month' ? 1 : -1 };
+        renderFY();
+        return;
+      }
+      const rk = e.target.closest('[data-mi-rank]');
+      if (rk) { miRank = rk.dataset.miRank; renderFY(); }
+    });
     TAX_KEYS.forEach(k => {
       const el = document.getElementById('tx_' + k);
       if (el) el.addEventListener('change', () => {
@@ -3569,7 +3676,7 @@ const DASH = (() => {
   }
 
   return { init, onShow, monthExtrasHTML, monthBuckets, renderBankFlow, renderFY, upcomingDues, bankEvents,
-    svgBarChart: barChart, svgDonut: donut,
+    svgBarChart: barChart, svgDonut: donut, miData,
     currentFyYear: () => fyYear !== null ? fyYear : fyStartOf(FT.fyMonthKey()) };
 })();
 
@@ -4800,6 +4907,33 @@ const REP = (() => {
     if (miscItems.length) charts += `<h3>Misc spend - by sub-category</h3>${DASH.svgDonut(miscItems)}`;
     charts += trendSVG(per) ? `<h3>Investment rate trend</h3>${trendSVG(per)}` : '';
     if (charts) h += `<div class="r-section"><h2>Charts</h2>${charts}</div>`;
+
+    /* month insights (multi-month scopes) - mirrors the FY card, ranked by leftover */
+    if (keys.length > 1) {
+      const mi = DASH.miData(keys);
+      if (mi.rows.length) {
+        let bestK = '', worstK = '';
+        if (mi.rows.length >= 2) {
+          const ranked = [...mi.rows].sort((a, b) => b.leftover - a.leftover);
+          bestK = ranked[0].k;
+          worstK = ranked[ranked.length - 1].k;
+        }
+        h += `<div class="r-section"><h2>Month insights</h2>
+          <table class="r-table"><thead><tr><th>Month</th><th class="num">Total In</th><th class="num">Invested</th>
+            <th class="num">Bills</th><th class="num">Misc</th><th class="num">Other spending</th>
+            <th class="num">Leftover</th><th class="num">Invest %</th></tr></thead><tbody>
+          ${mi.rows.map(r => `<tr>
+            <td>${r.m}${r.k === bestK ? ' 🏆' : ''}${r.k === worstK ? ' 🔻' : ''}</td>
+            <td class="num">${fmt(r.totalIn)}</td><td class="num">${fmt(r.invested)}</td>
+            <td class="num">${fmt(r.bills)}</td><td class="num">${fmt(r.misc)}</td>
+            <td class="num">${fmt(r.otherSpend)}</td>
+            <td class="num"${r.leftover < 0 ? ' style="color:#b91c1c;font-weight:900"' : ''}>${r.leftover < 0 ? '−' + fmt(-r.leftover) : fmt(r.leftover)}</td>
+            <td class="num">${Math.round(r.investPct)}%</td></tr>`).join('')}
+          </tbody></table>
+          ${mi.lines.length ? mi.lines.map(t => `<div class="r-note">💡 ${t}</div>`).join('') : ''}
+        </div>`;
+      }
+    }
 
     /* 4 - income breakdown */
     const salRows = logs.filter(l => l.type === 'Salary');
